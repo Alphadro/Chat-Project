@@ -67,6 +67,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
 
-
-
+    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("androidx.compose.material:material-icons-extended:1.6.8")
 }

@@ -1,0 +1,31 @@
+package fit.vcare.apps.domain.model
+
+enum class MessageType { TEXT, IMAGE, VIDEO, FILE, SYSTEM }
+enum class MessageStatus { SENT, DELIVERED, READ }
+
+data class Conversation(
+    val conversationId: String,
+    val relationshipId: String,
+    val participantIds: List<String>,
+    val createdAt: Long,
+    val lastMessage: String? = null,
+    val lastMessageAt: Long? = null,
+    val lastMessageSenderId: String? = null
+)
+
+data class Message(
+    val messageId: String,
+    val conversationId: String,
+    val senderId: String,
+    val text: String,
+    val type: MessageType = MessageType.TEXT,
+    val mediaUrl: String? = null,
+    val createdAt: Long,
+    val status: MessageStatus = MessageStatus.SENT,
+    val isEdited: Boolean = false
+)
+
+data class ReadState(
+    val uid: String,
+    val lastReadAt: Long
+)

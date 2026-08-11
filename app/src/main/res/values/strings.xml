@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">chat project</string>
+    <string name="default_web_client_id">1087583597721-oke61asu60b7nd8gbcs1cnejqjrt7hip.apps.googleusercontent.com</string>
+
 </resources>

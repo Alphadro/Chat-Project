@@ -1,0 +1,95 @@
+{
+  "project_info": {
+    "project_number": "1087583597721",
+    "project_id": "ai-fitness-8aabf",
+    "storage_bucket": "ai-fitness-8aabf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1087583597721:android:25c668fa76d3f33f5a3408",
+        "android_client_info": {
+          "package_name": "fit.vcare.apps"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1087583597721-5ac61o6q2lot56m505aekp7h66127c7c.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "fit.vcare.apps",
+            "certificate_hash": "a2d2175aa855d7e494ad1631857c035f27996263"
+          }
+        },
+        {
+          "client_id": "1087583597721-b13o17undeb170gcvqj403i5p8nojltk.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "fit.vcare.apps",
+            "certificate_hash": "9539b9d584f7800617270873129e0affa2a7787e"
+          }
+        },
+        {
+          "client_id": "1087583597721-f0gp4hfu97mqjuvjn64a7vqej25vo6q6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "fit.vcare.apps",
+            "certificate_hash": "284fe785b96ded0cec64b7aa8e9cfce048810604"
+          }
+        },
+        {
+          "client_id": "1087583597721-imophtvom5k5240ln1lckc7q2aq032sc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "fit.vcare.apps",
+            "certificate_hash": "11297d3d665a10dbf827ddcdcccbf4eac0e7da69"
+          }
+        },
+        {
+          "client_id": "1087583597721-k5jbe87drqlk7lk7is5b0qkfit160nd4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "fit.vcare.apps",
+            "certificate_hash": "11053940cb82fee0624c07a5226712678edc07bc"
+          }
+        },
+        {
+          "client_id": "1087583597721-mlfjviq3h2pt1miu2ogdosb193nld1pq.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "fit.vcare.apps",
+            "certificate_hash": "6794e0040061f2df3d2f1ad0e577f52c1b215510"
+          }
+        },
+        {
+          "client_id": "1087583597721-u4eq6a27acvs3838n987t8s8mr6hh8og.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "fit.vcare.apps",
+            "certificate_hash": "9fb7e39c858f63e243f2aae0b9a813a6215096ea"
+          }
+        },
+        {
+          "client_id": "1087583597721-oke61asu60b7nd8gbcs1cnejqjrt7hip.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAE7LxKAyUOKw0BS-KuKosmQwInkIt7R-o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1087583597721-oke61asu60b7nd8gbcs1cnejqjrt7hip.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
