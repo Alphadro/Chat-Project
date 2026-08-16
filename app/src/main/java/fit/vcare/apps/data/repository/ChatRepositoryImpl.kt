@@ -1,13 +1,13 @@
 package fit.vcare.apps.data.repository
 
 import android.content.Context
-import fit.vcare.apps.tools.FirestoreApiClient
 import fit.vcare.apps.data.mapper.*
 import fit.vcare.apps.domain.model.Conversation
 import fit.vcare.apps.domain.model.Message
 import fit.vcare.apps.domain.model.MessageStatus
 import fit.vcare.apps.domain.model.MessageType
 import fit.vcare.apps.domain.repository.ChatRepository
+import fit.vcare.apps.tools.FirestoreApiClient
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -63,12 +63,13 @@ object ChatRepositoryImpl : ChatRepository {
         context: Context,
         conversationId: String,
         senderId: String,
-        text: String
+        text: String,
+        messageId: String?
     ): Result<Message> {
         if (text.isBlank()) return Result.failure(IllegalArgumentException("پیام خالی است"))
 
         val now = FirestoreApiClient.getServerTimeMillis()
-        val newId = UUID.randomUUID().toString()
+        val newId = messageId ?: UUID.randomUUID().toString()
         val message = Message(
             messageId = newId,
             conversationId = conversationId,
@@ -83,7 +84,7 @@ object ChatRepositoryImpl : ChatRepository {
         val ok = FirestoreApiClient.write(context, "conversations/$conversationId/messages/$newId", message.toJson())
         if (!ok) return Result.failure(Exception("ارسال پیام ناموفق بود"))
 
-        updateConversationPreview(context, conversationId, previewText = message.text, senderId = senderId, at = now)
+        updateConversationPreview(context, conversationId, previewText = previewTextFor(message), senderId = senderId, at = now)
 
         return Result.success(message)
     }
@@ -93,12 +94,13 @@ object ChatRepositoryImpl : ChatRepository {
         conversationId: String,
         senderId: String,
         mediaUrl: String,
-        caption: String
+        caption: String,
+        messageId: String?
     ): Result<Message> {
         if (mediaUrl.isBlank()) return Result.failure(IllegalArgumentException("آدرس تصویر نامعتبر است"))
 
         val now = FirestoreApiClient.getServerTimeMillis()
-        val newId = UUID.randomUUID().toString()
+        val newId = messageId ?: UUID.randomUUID().toString()
         val message = Message(
             messageId = newId,
             conversationId = conversationId,
@@ -113,8 +115,43 @@ object ChatRepositoryImpl : ChatRepository {
         val ok = FirestoreApiClient.write(context, "conversations/$conversationId/messages/$newId", message.toJson())
         if (!ok) return Result.failure(Exception("ارسال تصویر ناموفق بود"))
 
-        val previewText = if (caption.isNotBlank()) "📷 ${caption.trim()}" else "📷 عکس"
-        updateConversationPreview(context, conversationId, previewText = previewText, senderId = senderId, at = now)
+        updateConversationPreview(context, conversationId, previewText = previewTextFor(message), senderId = senderId, at = now)
+
+        return Result.success(message)
+    }
+
+    override suspend fun sendAudioMessage(
+        context: Context,
+        conversationId: String,
+        senderId: String,
+        mediaUrl: String,
+        durationMs: Long,
+        mimeType: String,
+        fileSize: Long,
+        messageId: String?
+    ): Result<Message> {
+        if (mediaUrl.isBlank()) return Result.failure(IllegalArgumentException("آدرس فایل صوتی نامعتبر است"))
+
+        val now = FirestoreApiClient.getServerTimeMillis()
+        val newId = messageId ?: UUID.randomUUID().toString()
+        val message = Message(
+            messageId = newId,
+            conversationId = conversationId,
+            senderId = senderId,
+            text = "",
+            type = MessageType.AUDIO,
+            mediaUrl = mediaUrl,
+            createdAt = now,
+            status = MessageStatus.SENT,
+            durationMs = durationMs,
+            mimeType = mimeType,
+            fileSize = fileSize
+        )
+
+        val ok = FirestoreApiClient.write(context, "conversations/$conversationId/messages/$newId", message.toJson())
+        if (!ok) return Result.failure(Exception("ارسال پیام صوتی ناموفق بود"))
+
+        updateConversationPreview(context, conversationId, previewText = previewTextFor(message), senderId = senderId, at = now)
 
         return Result.success(message)
     }
@@ -137,7 +174,11 @@ object ChatRepositoryImpl : ChatRepository {
         val updated = existing.copy(text = newText.trim(), isEdited = true)
 
         val ok = FirestoreApiClient.write(context, path, updated.toJson())
-        return if (ok) Result.success(Unit) else Result.failure(Exception("ویرایش پیام ناموفق بود"))
+        if (!ok) return Result.failure(Exception("ویرایش پیام ناموفق بود"))
+
+        syncConversationPreviewFromLatestMessage(context, conversationId)
+
+        return Result.success(Unit)
     }
 
     override suspend fun deleteMessage(
@@ -149,7 +190,39 @@ object ChatRepositoryImpl : ChatRepository {
 
         val path = "conversations/$conversationId/messages/$messageId"
         val ok = FirestoreApiClient.delete(context, path)
-        return if (ok) Result.success(Unit) else Result.failure(Exception("حذف پیام ناموفق بود"))
+        if (!ok) return Result.failure(Exception("حذف پیام ناموفق بود"))
+
+        syncConversationPreviewFromLatestMessage(context, conversationId)
+
+        return Result.success(Unit)
+    }
+
+    private fun previewTextFor(message: Message): String {
+        return when (message.type) {
+            MessageType.IMAGE -> if (message.text.isNotBlank()) "📷 ${message.text}" else "📷 عکس"
+            MessageType.AUDIO -> "🎤 پیام صوتی"
+            else -> message.text
+        }
+    }
+
+    private suspend fun syncConversationPreviewFromLatestMessage(context: Context, conversationId: String) {
+        val messagesResult = getMessages(context, conversationId)
+        val messages = messagesResult.getOrNull() ?: return
+
+        val currentConv = getConversation(context, conversationId).getOrNull() ?: return
+
+        val latest = messages.maxByOrNull { it.createdAt }
+        val updated = if (latest != null) {
+            currentConv.copy(
+                lastMessage = previewTextFor(latest),
+                lastMessageAt = latest.createdAt,
+                lastMessageSenderId = latest.senderId
+            )
+        } else {
+            currentConv.copy(lastMessage = null, lastMessageAt = null, lastMessageSenderId = null)
+        }
+
+        FirestoreApiClient.write(context, "conversations/$conversationId", updated.toJson())
     }
 
     private suspend fun updateConversationPreview(

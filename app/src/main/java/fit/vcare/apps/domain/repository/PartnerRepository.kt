@@ -12,16 +12,19 @@ interface PartnerRepository {
     suspend fun acceptInvite(context: Context, token: String): Result<Relationship>
     suspend fun getMyActiveRelationships(context: Context): Result<List<RelationshipIndexEntry>>
 
-    /** بروزرسانی lastActiveAt کاربر جاری (heartbeat سبک برای Presence) — کل document حفظ می‌شود */
-    suspend fun sendHeartbeat(context: Context): Result<Unit>
+    /**
+     * بروزرسانی صریح وضعیت حضور کاربر جاری.
+     * isOnline=true وقتی چت باز و اپ در پیش‌زمینه است، isOnline=false وقتی چت بسته یا اپ در پس‌زمینه رفت.
+     * lastActiveAt همیشه با now بروزرسانی می‌شود (برای نمایش "آخرین بازدید").
+     */
+    suspend fun updatePresence(context: Context, isOnline: Boolean): Result<Unit>
 
-    /** Polling آخرین‌بازدید (lastActiveAt) یک کاربر */
     fun observeUserPresence(
         scope: CoroutineScope,
         context: Context,
         uid: String,
-        intervalMs: Long = 15000L
-    ): StateFlow<Long?>
+        intervalMs: Long = 10000L
+    ): StateFlow<PartnerPresence?>
 
     fun stopObservingPresence(uid: String)
 }

@@ -1,7 +1,8 @@
 package fit.vcare.apps.data.remote
 
 import android.content.Context
-import fit.vcare.apps.data.repository.getMyEmailOrEmpty
+import android.util.Log
+import fit.vcare.apps.data.repository.getMyTokenOrEmpty
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -13,23 +14,19 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * از همان endpoint واقعی و از قبل موجود پروژه استفاده می‌کند (FoodRepository.uploadImageToServer).
- * هیچ endpoint جدیدی به بک‌اند اضافه نشده.
- *
- * POST https://api.appeks.com/aifitness-chatgpt/api/ai/upload-image
- * multipart fields: image (binary), email (string)
- * response: { "imageUrl": "..." }
- *
- * توجه: این endpoint بر خلاف FirestoreApiClient نیاز به Authorization ندارد و
- * شناسه‌اش email است (طبق رفتار موجود در FoodRepository) — عمداً همان رفتار حفظ شده.
+ * آپلود تصویر و صدای چت. هر دو تابع عمومی (uploadImage, uploadAudio) بدون تغییر رفتار
+ * روی یک تابع خصوصی مشترک (uploadFile) سوار شدند — رفتار uploadImage عیناً حفظ شده،
+ * فقط منطق تکراری حذف شد.
  */
 interface MediaRepository {
     suspend fun uploadImage(context: Context, imageBytes: ByteArray): Result<String>
+    suspend fun uploadAudio(context: Context, audioBytes: ByteArray, mimeType: String): Result<String>
 }
 
 object MediaRepositoryImpl : MediaRepository {
 
-    private const val UPLOAD_URL = "https://api.appeks.com/aifitness-chatgpt/api/ai/upload-image"
+    private const val UPLOAD_IMAGE_URL = "https://api.appeks.com/aifitness-firebase/api/chat/upload-image"
+    private const val UPLOAD_AUDIO_URL = "https://api.appeks.com/aifitness-firebase/api/chat/upload-audio"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -37,44 +34,85 @@ object MediaRepositoryImpl : MediaRepository {
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    override suspend fun uploadImage(context: Context, imageBytes: ByteArray): Result<String> =
-        withContext(Dispatchers.IO) {
-            try {
-                val email = getMyEmailOrEmpty(context)
-                if (email.isBlank()) {
-                    return@withContext Result.failure(Exception("لطفاً دوباره وارد شوید"))
-                }
+    override suspend fun uploadImage(context: Context, imageBytes: ByteArray): Result<String> {
+        val fileName = "chat_${System.currentTimeMillis()}.jpg"
+        return uploadFile(
+            context = context,
+            url = UPLOAD_IMAGE_URL,
+            fieldName = "image",
+            fileName = fileName,
+            bytes = imageBytes,
+            mimeType = "image/jpeg",
+            responseUrlKey = "imageUrl"
+        )
+    }
 
-                val fileName = "chat_${System.currentTimeMillis()}.jpg"
-                val imageBody = imageBytes.toRequestBody("image/*".toMediaType())
-
-                val multipartBody = MultipartBody.Builder()
-                    .setType(MultipartBody.FORM)
-                    .addFormDataPart("image", fileName, imageBody)
-                    .addFormDataPart("email", email)
-                    .build()
-
-                val request = Request.Builder()
-                    .url(UPLOAD_URL)
-                    .post(multipartBody)
-                    .build()
-
-                client.newCall(request).execute().use { response ->
-                    val bodyString = response.body?.string()
-                    if (!response.isSuccessful || bodyString.isNullOrBlank()) {
-                        return@withContext Result.failure(Exception("آپلود تصویر ناموفق بود (${response.code})"))
-                    }
-
-                    val json = JSONObject(bodyString)
-                    val imageUrl = json.optString("imageUrl")
-                    if (imageUrl.isBlank()) {
-                        return@withContext Result.failure(Exception("سرور آدرس تصویر را برنگرداند"))
-                    }
-
-                    Result.success(imageUrl)
-                }
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
+    override suspend fun uploadAudio(context: Context, audioBytes: ByteArray, mimeType: String): Result<String> {
+        val extension = when {
+            mimeType.contains("mp4") -> "m4a"
+            mimeType.contains("aac") -> "aac"
+            else -> "m4a"
         }
+        val fileName = "voice_${System.currentTimeMillis()}.$extension"
+        return uploadFile(
+            context = context,
+            url = UPLOAD_AUDIO_URL,
+            fieldName = "audio",
+            fileName = fileName,
+            bytes = audioBytes,
+            mimeType = mimeType,
+            responseUrlKey = "audioUrl"
+        )
+    }
+
+    private suspend fun uploadFile(
+        context: Context,
+        url: String,
+        fieldName: String,
+        fileName: String,
+        bytes: ByteArray,
+        mimeType: String,
+        responseUrlKey: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val token = getMyTokenOrEmpty(context)
+            Log.d("MediaUpload", "url=$url tokenBlank=${token.isBlank()} tokenLen=${token.length}")
+
+            if (token.isBlank()) {
+                return@withContext Result.failure(Exception("لطفاً دوباره وارد شوید"))
+            }
+
+            val fileBody = bytes.toRequestBody(mimeType.toMediaType())
+            val multipartBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart(fieldName, fileName, fileBody)
+                .build()
+
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $token")
+                .post(multipartBody)
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                val bodyString = response.body?.string()
+                // این لاگ رو همیشه بزن، چه موفق چه ناموفق
+                Log.d("MediaUpload", "code=${response.code} body=$bodyString")
+
+                if (!response.isSuccessful || bodyString.isNullOrBlank()) {
+                    return@withContext Result.failure(Exception("آپلود ناموفق بود (${response.code}): $bodyString"))
+                }
+
+                val json = JSONObject(bodyString)
+                val fileUrl = json.optString(responseUrlKey)
+                if (fileUrl.isBlank()) {
+                    return@withContext Result.failure(Exception("سرور آدرس فایل را برنگرداند"))
+                }
+
+                Result.success(fileUrl)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

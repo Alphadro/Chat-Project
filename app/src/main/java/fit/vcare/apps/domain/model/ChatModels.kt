@@ -1,7 +1,7 @@
 package fit.vcare.apps.domain.model
 
-enum class MessageType { TEXT, IMAGE, VIDEO, FILE, SYSTEM }
-enum class MessageStatus { SENT, DELIVERED, READ }
+enum class MessageType { TEXT, IMAGE, VIDEO, FILE, AUDIO, SYSTEM }
+enum class MessageStatus { PENDING, SENT, DELIVERED, READ }
 
 data class Conversation(
     val conversationId: String,
@@ -22,7 +22,11 @@ data class Message(
     val mediaUrl: String? = null,
     val createdAt: Long,
     val status: MessageStatus = MessageStatus.SENT,
-    val isEdited: Boolean = false
+    val isEdited: Boolean = false,
+    // فقط برای MessageType.AUDIO پر می‌شوند
+    val durationMs: Long? = null,
+    val mimeType: String? = null,
+    val fileSize: Long? = null
 )
 
 data class ReadState(

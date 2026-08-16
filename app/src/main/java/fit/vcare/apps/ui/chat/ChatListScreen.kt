@@ -1,6 +1,6 @@
 package fit.vcare.apps.ui.chat
 
-
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,9 +11,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import fit.vcare.apps.viewmodel.ChatListViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private val listTimeFormatter = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+private fun formatListTime(millis: Long?): String {
+    if (millis == null || millis <= 0) return ""
+    return listTimeFormatter.format(Date(millis))
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,12 +66,26 @@ fun ChatListScreen(
                                     "chat/${item.conversationId}/${item.partnerUid}/${android.net.Uri.encode(item.partnerName)}"
                                 )
                             }
-                            .padding(16.dp),
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(item.partnerName, fontWeight = FontWeight.Bold)
-                            Text(item.lastMessage ?: "شروع مکالمه", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                text = item.lastMessage ?: "شروع مکالمه",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
+                            )
+                        }
+
+                        val timeText = formatListTime(item.lastMessageAt)
+                        if (timeText.isNotBlank()) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = timeText,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                     Divider()

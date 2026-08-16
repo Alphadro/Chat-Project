@@ -1,6 +1,5 @@
 package fit.vcare.apps.domain.model
 
-
 enum class InviteStatus { ACTIVE, ACCEPTED, EXPIRED, CANCELLED }
 
 data class PartnerInvite(
@@ -34,13 +33,18 @@ data class PartnerUserInfo(
     val photoUrl: String? = null
 )
 
-/** ردیف reverse-index در users/{uid}/partner_relationships/{relationshipId} */
 data class RelationshipIndexEntry(
     val relationshipId: String,
     val partnerUid: String,
     val status: RelationshipStatus,
     val createdAt: Long,
     val connectedAt: Long
+)
+
+/** وضعیت حضور صریح کاربر — isOnline مستقیماً روی رفتن اپ به پس‌زمینه/پیش‌زمینه ست می‌شود */
+data class PartnerPresence(
+    val isOnline: Boolean,
+    val lastActiveAt: Long
 )
 
 sealed class PartnerError(val message: String) {

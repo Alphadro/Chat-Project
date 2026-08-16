@@ -1,15 +1,16 @@
 package fit.vcare.apps.data.repository
 
 import android.content.Context
-import fit.vcare.apps.tools.FirestoreApiClient
 import fit.vcare.apps.data.mapper.*
 import fit.vcare.apps.domain.model.*
 import fit.vcare.apps.domain.repository.PartnerRepository
 import fit.vcare.apps.login_system.getUid
+import fit.vcare.apps.tools.FirestoreApiClient
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -18,7 +19,7 @@ object PartnerRepositoryImpl : PartnerRepository {
     private const val INVITE_TTL_MS = 24 * 60 * 60 * 1000L // 24 ساعت — Assumption
 
     private val presenceJobs = ConcurrentHashMap<String, Job>()
-    private val presenceStates = ConcurrentHashMap<String, MutableStateFlow<Long?>>()
+    private val presenceStates = ConcurrentHashMap<String, MutableStateFlow<PartnerPresence?>>()
 
     private fun relationshipIdOf(uidA: String, uidB: String): String =
         listOf(uidA, uidB).sorted().joinToString("_")
@@ -132,17 +133,24 @@ object PartnerRepositoryImpl : PartnerRepository {
         return Result.success(entries)
     }
 
-    override suspend fun sendHeartbeat(context: Context): Result<Unit> {
+    /**
+     * self-healing: قبلاً اگر خواندن document کاربر fail می‌شد، کل عملیات لغو می‌شد و "آنلاین" هرگز ثبت نمی‌شد.
+     * حالا حتی اگر read ناموفق باشد، یک document جدید با فیلدهای حضور ساخته و نوشته می‌شود.
+     */
+    override suspend fun updatePresence(context: Context, isOnline: Boolean): Result<Unit> {
         val uid = getUid(context) ?: return Result.failure(PartnerException(PartnerError.Unauthorized))
         val path = "users/$uid"
+        val now = FirestoreApiClient.getServerTimeMillis()
 
         val existingRaw = FirestoreApiClient.read(context, path)
-            ?: return Result.failure(PartnerException(PartnerError.NetworkError))
-        val doc = existingRaw.unwrapDocument()
-        if (doc.length() == 0) return Result.failure(PartnerException(PartnerError.NetworkError))
+        val doc = if (existingRaw != null && !existingRaw.has("error")) {
+            val d = existingRaw.unwrapDocument()
+            if (d.length() > 0) d else JSONObject()
+        } else {
+            JSONObject()
+        }
 
-        val now = FirestoreApiClient.getServerTimeMillis()
-        // فقط این یک فیلد را عوض می‌کنیم؛ بقیه فیلدهای موجود (email/deviceId/nova/isPermanent/...) دست‌نخورده باقی می‌مانند
+        doc.put("isOnline", isOnline)
         doc.put("lastActiveAt", now)
 
         val ok = FirestoreApiClient.write(context, path, doc)
@@ -154,7 +162,7 @@ object PartnerRepositoryImpl : PartnerRepository {
         context: Context,
         uid: String,
         intervalMs: Long
-    ): StateFlow<Long?> {
+    ): StateFlow<PartnerPresence?> {
         val state = presenceStates.getOrPut(uid) { MutableStateFlow(null) }
         presenceJobs[uid]?.cancel()
 
@@ -164,7 +172,10 @@ object PartnerRepositoryImpl : PartnerRepository {
                 if (raw != null && !raw.has("error")) {
                     val doc = raw.unwrapDocument()
                     if (doc.length() > 0) {
-                        state.value = doc.optLong("lastActiveAt", 0L)
+                        state.value = PartnerPresence(
+                            isOnline = doc.optBoolean("isOnline", false),
+                            lastActiveAt = doc.optLong("lastActiveAt", 0L)
+                        )
                     }
                 }
                 delay(intervalMs)
@@ -180,5 +191,4 @@ object PartnerRepositoryImpl : PartnerRepository {
     }
 }
 
-/** Exception حامل PartnerError برای اینکه لایه ViewModel بتواند نوع خطا را تشخیص دهد. */
 class PartnerException(val error: PartnerError) : Exception(error.message)

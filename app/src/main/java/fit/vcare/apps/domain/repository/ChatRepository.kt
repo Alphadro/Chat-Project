@@ -19,7 +19,8 @@ interface ChatRepository {
         context: Context,
         conversationId: String,
         senderId: String,
-        text: String
+        text: String,
+        messageId: String? = null
     ): Result<Message>
 
     suspend fun sendImageMessage(
@@ -27,7 +28,19 @@ interface ChatRepository {
         conversationId: String,
         senderId: String,
         mediaUrl: String,
-        caption: String = ""
+        caption: String = "",
+        messageId: String? = null
+    ): Result<Message>
+
+    suspend fun sendAudioMessage(
+        context: Context,
+        conversationId: String,
+        senderId: String,
+        mediaUrl: String,
+        durationMs: Long,
+        mimeType: String,
+        fileSize: Long,
+        messageId: String? = null
     ): Result<Message>
 
     suspend fun editMessage(
@@ -58,10 +71,8 @@ interface ChatRepository {
 
     suspend fun updateLastRead(context: Context, conversationId: String, uid: String, lastReadAt: Long): Result<Unit>
 
-    /** بروزرسانی وضعیت تایپ خودم (فقط روی تغییر وضعیت نوشته شود، نه هر keystroke) */
     suspend fun setTypingState(context: Context, conversationId: String, uid: String, isTyping: Boolean): Result<Unit>
 
-    /** Polling وضعیت تایپ طرف مقابل */
     fun observePartnerTyping(
         scope: CoroutineScope,
         context: Context,
@@ -72,7 +83,6 @@ interface ChatRepository {
 
     fun stopObservingTyping(conversationId: String)
 
-    /** Polling آخرین زمان خواندن پیام‌ها توسط طرف مقابل (برای تیک‌های دوبل) */
     fun observePartnerReadState(
         scope: CoroutineScope,
         context: Context,

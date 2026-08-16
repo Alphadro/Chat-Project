@@ -75,10 +75,6 @@ fun RelationshipIndexEntry.toJson(): JSONObject = JSONObject().apply {
     put("connectedAt", connectedAt)
 }
 
-/**
- * ترتیب نمایش نام: فیلد "name" کاربر (اگر ست شده باشد) -> در غیر این صورت email -> در غیر این صورت uid.
- * هرگز مستقیم email به‌عنوان نام انتخاب نمی‌شود مگر name خالی باشد.
- */
 fun JSONObject.toPartnerUserInfo(uid: String): PartnerUserInfo {
     val doc = unwrapDocument()
     val email = doc.optString("email", "")
@@ -127,7 +123,10 @@ fun JSONObject.toMessage(fallbackId: String, conversationId: String): Message {
         createdAt = doc.optLong("createdAt"),
         status = runCatching { MessageStatus.valueOf(doc.optString("status", "SENT")) }
             .getOrDefault(MessageStatus.SENT),
-        isEdited = doc.optBoolean("isEdited", false)
+        isEdited = doc.optBoolean("isEdited", false),
+        durationMs = if (doc.has("durationMs")) doc.optLong("durationMs") else null,
+        mimeType = doc.optString("mimeType").ifBlank { null },
+        fileSize = if (doc.has("fileSize")) doc.optLong("fileSize") else null
     )
 }
 
@@ -140,4 +139,7 @@ fun Message.toJson(): JSONObject = JSONObject().apply {
     put("createdAt", createdAt)
     put("status", status.name)
     put("isEdited", isEdited)
+    put("durationMs", durationMs ?: JSONObject.NULL)
+    put("mimeType", mimeType ?: JSONObject.NULL)
+    put("fileSize", fileSize ?: JSONObject.NULL)
 }
