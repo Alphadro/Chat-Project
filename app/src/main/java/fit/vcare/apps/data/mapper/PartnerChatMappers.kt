@@ -1,6 +1,7 @@
 package fit.vcare.apps.data.mapper
 
 import fit.vcare.apps.domain.model.*
+import fit.vcare.apps.viewmodel.ChatListItemUiState
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -79,8 +80,14 @@ fun JSONObject.toPartnerUserInfo(uid: String): PartnerUserInfo {
     val doc = unwrapDocument()
     val email = doc.optString("email", "")
     val name = doc.optString("name", "")
+    val photoUrl = doc.optString("profile").ifBlank { null }
     val resolvedName = name.ifBlank { email.ifBlank { uid } }
-    return PartnerUserInfo(uid = uid, email = email, displayName = resolvedName)
+    return PartnerUserInfo(
+        uid = uid,
+        email = email,
+        displayName = resolvedName,
+        photoUrl = photoUrl
+    )
 }
 
 fun JSONObject.toConversation(fallbackId: String): Conversation {
@@ -94,9 +101,9 @@ fun JSONObject.toConversation(fallbackId: String): Conversation {
         relationshipId = doc.optString("relationshipId"),
         participantIds = ids,
         createdAt = doc.optLong("createdAt"),
-        lastMessage = doc.optString("lastMessage").ifBlank { null },
-        lastMessageAt = if (doc.has("lastMessageAt")) doc.optLong("lastMessageAt") else null,
-        lastMessageSenderId = doc.optString("lastMessageSenderId").ifBlank { null }
+        lastMessage = doc.optNullableString("lastMessage"),           // ← تغییر
+        lastMessageAt = if (doc.has("lastMessageAt") && !doc.isNull("lastMessageAt")) doc.optLong("lastMessageAt") else null,  // ← تغییر
+        lastMessageSenderId = doc.optNullableString("lastMessageSenderId")   // ← تغییر
     )
 }
 
@@ -109,7 +116,6 @@ fun Conversation.toJson(): JSONObject = JSONObject().apply {
     put("lastMessageAt", lastMessageAt ?: JSONObject.NULL)
     put("lastMessageSenderId", lastMessageSenderId ?: JSONObject.NULL)
 }
-
 fun JSONObject.toMessage(fallbackId: String, conversationId: String): Message {
     val doc = unwrapDocument()
     return Message(
@@ -126,7 +132,9 @@ fun JSONObject.toMessage(fallbackId: String, conversationId: String): Message {
         isEdited = doc.optBoolean("isEdited", false),
         durationMs = if (doc.has("durationMs")) doc.optLong("durationMs") else null,
         mimeType = doc.optString("mimeType").ifBlank { null },
-        fileSize = if (doc.has("fileSize")) doc.optLong("fileSize") else null
+        fileSize = if (doc.has("fileSize")) doc.optLong("fileSize") else null,
+        proposalStatus = doc.optString("proposalStatus").ifBlank { null }
+            ?.let { runCatching { ProposalStatus.valueOf(it) }.getOrNull() }
     )
 }
 
@@ -142,4 +150,43 @@ fun Message.toJson(): JSONObject = JSONObject().apply {
     put("durationMs", durationMs ?: JSONObject.NULL)
     put("mimeType", mimeType ?: JSONObject.NULL)
     put("fileSize", fileSize ?: JSONObject.NULL)
+    put("proposalStatus", proposalStatus?.name ?: JSONObject.NULL)
+}
+fun ChatListItemUiState.toJson(): JSONObject = JSONObject().apply {
+    put("relationshipId", relationshipId)
+    put("conversationId", conversationId)
+    put("partnerUid", partnerUid)
+    put("partnerName", partnerName)
+    put("partnerPhotoUrl", partnerPhotoUrl ?: JSONObject.NULL)
+    put("lastMessage", lastMessage ?: JSONObject.NULL)
+    put("lastMessageAt", lastMessageAt ?: JSONObject.NULL)
+}
+
+fun JSONObject.toChatListItem(): ChatListItemUiState = ChatListItemUiState(
+    relationshipId = optString("relationshipId"),
+    conversationId = optString("conversationId"),
+    partnerUid = optString("partnerUid"),
+    partnerName = optString("partnerName"),
+    partnerPhotoUrl = optNullableString("partnerPhotoUrl"),   // ← تغییر (اگه از قبل داری همینو داشته باش)
+    lastMessage = optNullableString("lastMessage"),           // ← تغییر
+    lastMessageAt = if (has("lastMessageAt") && !isNull("lastMessageAt")) optLong("lastMessageAt") else null
+)
+
+fun List<ChatListItemUiState>.toJsonArray(): JSONArray {
+    val arr = JSONArray()
+    forEach { arr.put(it.toJson()) }
+    return arr
+}
+
+fun JSONArray.toChatListItems(): List<ChatListItemUiState> {
+    val list = mutableListOf<ChatListItemUiState>()
+    for (i in 0 until length()) {
+        list.add(getJSONObject(i).toChatListItem())
+    }
+    return list
+}
+fun JSONObject.optNullableString(key: String): String? {
+    if (!has(key) || isNull(key)) return null
+    val value = optString(key, "")
+    return value.ifBlank { null }
 }

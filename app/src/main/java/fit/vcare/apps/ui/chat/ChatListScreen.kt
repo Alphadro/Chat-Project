@@ -5,15 +5,22 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
+import fit.vcare.apps.navigation.PartnerChatRoutes
 import fit.vcare.apps.viewmodel.ChatListViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -37,8 +44,14 @@ fun ChatListScreen(
     LaunchedEffect(Unit) { viewModel.load() }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text("Chats") })
-
+        TopAppBar(
+            title = { Text("Chats") },
+            actions = {
+                IconButton(onClick = { navController.navigate(PartnerChatRoutes.GLOBAL_APPEARANCE) }) {
+                    Icon(Icons.Filled.Wallpaper, contentDescription = "پس‌زمینه و تم پیش‌فرض")
+                }
+            }
+        )
         Button(
             onClick = { navController.navigate("add_partner") },
             modifier = Modifier.padding(16.dp)
@@ -69,6 +82,32 @@ fun ChatListScreen(
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (!item.partnerPhotoUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = item.partnerPhotoUrl,
+                                    contentDescription = "عکس پروفایل",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize().clip(CircleShape)
+                                )
+                            } else {
+                                Text(
+                                    text = item.partnerName.take(1).uppercase(),
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.width(12.dp))
+
                         Column(Modifier.weight(1f)) {
                             Text(item.partnerName, fontWeight = FontWeight.Bold)
                             Text(

@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,12 +27,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -42,22 +47,67 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
 import fit.vcare.apps.data.audio.AudioPlayerManager
 import fit.vcare.apps.domain.model.ChatThemeOption
 import fit.vcare.apps.domain.model.ChatThemePresets
 import fit.vcare.apps.domain.model.Message
 import fit.vcare.apps.domain.model.MessageStatus
 import fit.vcare.apps.domain.model.MessageType
+import fit.vcare.apps.domain.model.ProposalStatus
 import fit.vcare.apps.viewmodel.ChatUiState
 import fit.vcare.apps.viewmodel.ChatViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.Calendar
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.imePadding
 
 private val timeFormatter = SimpleDateFormat("HH:mm", Locale.getDefault())
 private const val PRESENCE_STALE_MS = 20_000L
+sealed class ChatListEntry {
+    data class MessageEntry(val message: Message) : ChatListEntry()
+    data class DateHeaderEntry(val label: String, val dateKey: String) : ChatListEntry()
+}
 
+private fun dayKey(millis: Long): String {
+    val cal = Calendar.getInstance().apply { timeInMillis = millis }
+    return "${cal.get(Calendar.YEAR)}-${cal.get(Calendar.DAY_OF_YEAR)}"
+}
+
+private fun dateHeaderLabel(millis: Long): String {
+    val nowCal = Calendar.getInstance()
+    val msgCal = Calendar.getInstance().apply { timeInMillis = millis }
+
+    val isSameDay = nowCal.get(Calendar.YEAR) == msgCal.get(Calendar.YEAR) &&
+            nowCal.get(Calendar.DAY_OF_YEAR) == msgCal.get(Calendar.DAY_OF_YEAR)
+    if (isSameDay) return "امروز"
+
+    val yesterdayCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
+    val isYesterday = yesterdayCal.get(Calendar.YEAR) == msgCal.get(Calendar.YEAR) &&
+            yesterdayCal.get(Calendar.DAY_OF_YEAR) == msgCal.get(Calendar.DAY_OF_YEAR)
+    if (isYesterday) return "دیروز"
+
+    return SimpleDateFormat("d MMM", Locale.ENGLISH).format(Date(millis))
+}
+
+private fun buildChatEntries(messages: List<Message>): List<ChatListEntry> {
+    val result = mutableListOf<ChatListEntry>()
+    var lastDayKey: String? = null
+    for (msg in messages) {
+        val key = dayKey(msg.createdAt)
+        if (key != lastDayKey) {
+            result.add(ChatListEntry.DateHeaderEntry(dateHeaderLabel(msg.createdAt), key))
+            lastDayKey = key
+        }
+        result.add(ChatListEntry.MessageEntry(msg))
+    }
+    return result
+}
 private fun formatMessageTime(millis: Long): String =
     if (millis <= 0) "" else timeFormatter.format(Date(millis))
 
@@ -75,11 +125,83 @@ private fun partnerStatusText(uiState: ChatUiState): String {
             (System.currentTimeMillis() - presence.lastActiveAt) < PRESENCE_STALE_MS
     return when {
         presence.isOnline && isFresh -> "آنلاین"
-        presence.lastActiveAt > 0 -> "بازدید ${timeFormatter.format(Date(presence.lastActiveAt))}"
+        presence.lastActiveAt > 0 -> formatLastSeen(presence.lastActiveAt)
         else -> ""
     }
 }
 
+private fun formatLastSeen(lastActiveAt: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - lastActiveAt
+
+    val nowCal = Calendar.getInstance()
+    val seenCal = Calendar.getInstance().apply { timeInMillis = lastActiveAt }
+    val isSameDay = nowCal.get(Calendar.YEAR) == seenCal.get(Calendar.YEAR) &&
+            nowCal.get(Calendar.DAY_OF_YEAR) == seenCal.get(Calendar.DAY_OF_YEAR)
+
+    val yesterdayCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
+    val isYesterday = yesterdayCal.get(Calendar.YEAR) == seenCal.get(Calendar.YEAR) &&
+            yesterdayCal.get(Calendar.DAY_OF_YEAR) == seenCal.get(Calendar.DAY_OF_YEAR)
+
+    val timeStr = timeFormatter.format(Date(lastActiveAt))
+
+    return when {
+        isSameDay -> "آخرین بازدید امروز ساعت $timeStr"
+        isYesterday -> "آخرین بازدید دیروز ساعت $timeStr"
+        diff < 7L * 24 * 60 * 60 * 1000L -> {
+            val dayFormatter = SimpleDateFormat("EEEE", Locale("fa"))
+            "آخرین بازدید ${dayFormatter.format(Date(lastActiveAt))} ساعت $timeStr"
+        }
+        diff < 30L * 24 * 60 * 60 * 1000L -> "آخرین بازدید در یک ماه اخیر"
+        else -> "آخرین بازدید خیلی وقت پیش"
+    }
+}
+private val IMAGE_MAX_WIDTH = 240.dp
+private val IMAGE_MAX_HEIGHT = 320.dp
+private val IMAGE_MIN_WIDTH = 120.dp
+private val IMAGE_MIN_HEIGHT = 120.dp
+
+/**
+ * منطق شبیه تلگرام: عکس رو با حفظ نسبت ابعاد داخل یک باکس max×max جا می‌ده.
+ * اگه نسبت خیلی افراطی باشه (خیلی دراز یا خیلی پهن)، یک ضلع روی min قفل می‌شه
+ * و عکس با ContentScale.Crop از داخل باکس تنظیم می‌شه (بدون کش اومدن/تغییر شکل).
+ */
+private fun computeBubbleImageSize(
+    naturalWidth: Int,
+    naturalHeight: Int
+): Triple<Dp, Dp, ContentScale> {
+    if (naturalWidth <= 0 || naturalHeight <= 0) {
+        return Triple(IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT, ContentScale.Crop)
+    }
+    val ratio = naturalWidth.toFloat() / naturalHeight.toFloat()
+
+    var w = IMAGE_MAX_WIDTH.value
+    var h = w / ratio
+
+    if (h in IMAGE_MIN_HEIGHT.value..IMAGE_MAX_HEIGHT.value) {
+        return Triple(w.dp, h.dp, ContentScale.Fit)
+    }
+
+    if (h > IMAGE_MAX_HEIGHT.value) {
+        // عکس خیلی دراز (پرتره) -> ارتفاع روی max قفل، عرض کوچیک‌تر می‌شه
+        h = IMAGE_MAX_HEIGHT.value
+        w = h * ratio
+        return if (w < IMAGE_MIN_WIDTH.value) {
+            Triple(IMAGE_MIN_WIDTH, IMAGE_MAX_HEIGHT, ContentScale.Crop)
+        } else {
+            Triple(w.dp, h.dp, ContentScale.Fit)
+        }
+    }
+
+    // عکس خیلی پهن (لنداسکیپ کشیده) -> عرض روی max، ارتفاع خیلی کوچیک می‌شه
+    h = IMAGE_MIN_HEIGHT.value
+    w = h * ratio
+    return if (w > IMAGE_MAX_WIDTH.value) {
+        Triple(IMAGE_MAX_WIDTH, IMAGE_MIN_HEIGHT, ContentScale.Crop)
+    } else {
+        Triple(w.dp, h.dp, ContentScale.Fit)
+    }
+}
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -121,7 +243,8 @@ fun ChatScreen(
     val myBubbleColor = if (isDarkTheme) activeTheme.darkColor else activeTheme.lightColor
 
     val audioPlaybackState by AudioPlayerManager.state.collectAsState()
-
+    var showClearHistoryDialog by remember { mutableStateOf(false) }
+    var showDeleteChatDialog by remember { mutableStateOf(false) }
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -174,7 +297,11 @@ fun ChatScreen(
             messageText = ""
         }
     }
-
+    LaunchedEffect(uiState.chatDeleted) {
+        if (uiState.chatDeleted) {
+            navController.popBackStack()
+        }
+    }
     DisposableEffect(lifecycleOwner, conversationId) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -193,22 +320,27 @@ fun ChatScreen(
 
     LaunchedEffect(uiState.messages.size) {
         if (!isSearchActive && uiState.messages.isNotEmpty()) {
-            listState.scrollToItem(uiState.messages.lastIndex)
+            listState.scrollToItem(0)
         }
     }
 
-    val matchedIndices = remember(uiState.messages, searchQuery) {
+    val chatEntries = remember(uiState.messages) { buildChatEntries(uiState.messages) }
+    val reversedEntries = remember(chatEntries) { chatEntries.asReversed() }
+
+    val matchedMessageIds = remember(uiState.messages, searchQuery) {
         if (searchQuery.isBlank()) emptyList()
-        else uiState.messages.mapIndexedNotNull { index, msg ->
-            if (msg.type != MessageType.AUDIO && msg.text.contains(searchQuery, ignoreCase = true)) index
-            else null
-        }
+        else uiState.messages.filter {
+            it.type == MessageType.TEXT && it.text.contains(searchQuery, ignoreCase = true)
+        }.map { it.messageId }
     }
-    LaunchedEffect(matchedIndices) { currentMatchPointer = 0 }
-    val highlightedMessageId = matchedIndices.getOrNull(currentMatchPointer)
-        ?.let { uiState.messages.getOrNull(it)?.messageId }
+    LaunchedEffect(matchedMessageIds) { currentMatchPointer = 0 }
+    val highlightedMessageId = matchedMessageIds.getOrNull(currentMatchPointer)
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    fun indexOfMessageInReversed(messageId: String): Int =
+        reversedEntries.indexOfFirst { it is ChatListEntry.MessageEntry && it.message.messageId == messageId }
+    Column(modifier = Modifier.fillMaxSize() .windowInsetsPadding(
+        WindowInsets.navigationBars.union(WindowInsets.ime)
+    )) {
         if (isSearchActive) {
             TopAppBar(
                 title = {
@@ -221,23 +353,25 @@ fun ChatScreen(
                     )
                 },
                 actions = {
-                    if (matchedIndices.isNotEmpty()) {
+                    if (matchedMessageIds.isNotEmpty()) {
                         Text(
-                            text = "${currentMatchPointer + 1}/${matchedIndices.size}",
+                            text = "${currentMatchPointer + 1}/${matchedMessageIds.size}",
                             fontSize = 12.sp,
                             modifier = Modifier.padding(end = 4.dp)
                         )
                         IconButton(onClick = {
-                            if (matchedIndices.isEmpty()) return@IconButton
-                            currentMatchPointer = (currentMatchPointer - 1 + matchedIndices.size) % matchedIndices.size
-                            coroutineScope.launch { listState.animateScrollToItem(matchedIndices[currentMatchPointer]) }
+                            if (matchedMessageIds.isEmpty()) return@IconButton
+                            currentMatchPointer = (currentMatchPointer - 1 + matchedMessageIds.size) % matchedMessageIds.size
+                            val idx = indexOfMessageInReversed(matchedMessageIds[currentMatchPointer])
+                            if (idx >= 0) coroutineScope.launch { listState.animateScrollToItem(idx) }
                         }) {
                             Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "قبلی")
                         }
                         IconButton(onClick = {
-                            if (matchedIndices.isEmpty()) return@IconButton
-                            currentMatchPointer = (currentMatchPointer + 1) % matchedIndices.size
-                            coroutineScope.launch { listState.animateScrollToItem(matchedIndices[currentMatchPointer]) }
+                            if (matchedMessageIds.isEmpty()) return@IconButton
+                            currentMatchPointer = (currentMatchPointer + 1) % matchedMessageIds.size
+                            val idx = indexOfMessageInReversed(matchedMessageIds[currentMatchPointer])
+                            if (idx >= 0) coroutineScope.launch { listState.animateScrollToItem(idx) }
                         }) {
                             Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "بعدی")
                         }
@@ -250,9 +384,49 @@ fun ChatScreen(
                     }
                 }
             )
-        } else {
-            TopAppBar(
-                title = {
+        }  else {
+        TopAppBar(
+            navigationIcon = {
+                IconButton(onClick = { navController.popBackStack() }) {
+                    Icon(Icons.Filled.ArrowBack, contentDescription = "بازگشت")
+                }
+            },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clickable {
+                            navController.navigate(
+                                "partner_profile/$partnerUid/${Uri.encode(partnerName)}"
+                            )
+                        }
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!uiState.partnerPhotoUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = uiState.partnerPhotoUrl,
+                                contentDescription = "عکس پروفایل",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().clip(CircleShape)
+                            )
+                        } else {
+                            Text(
+                                text = partnerName.take(1).uppercase(),
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.width(10.dp))
+
                     Column {
                         Text(partnerName)
                         val statusText = partnerStatusText(uiState)
@@ -267,9 +441,10 @@ fun ChatScreen(
                             )
                         }
                     }
-                },
-                actions = {
-                    IconButton(onClick = { showOverflowMenu = true }) {
+                }
+            },
+            actions = {
+                IconButton(onClick = { showOverflowMenu = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "منو")
                     }
                     DropdownMenu(
@@ -279,12 +454,18 @@ fun ChatScreen(
                         DropdownMenuItem(
                             text = { Text("پاک کردن تاریخچه") },
                             leadingIcon = { Icon(Icons.Filled.DeleteSweep, contentDescription = null) },
-                            onClick = { showOverflowMenu = false }
+                            onClick = {
+                                showOverflowMenu = false
+                                showClearHistoryDialog = true
+                            }
                         )
                         DropdownMenuItem(
                             text = { Text("حذف چت") },
                             leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
-                            onClick = { showOverflowMenu = false }
+                            onClick = {
+                                showOverflowMenu = false
+                                showDeleteChatDialog = true
+                            }
                         )
                         Divider()
                         DropdownMenuItem(
@@ -337,8 +518,41 @@ fun ChatScreen(
                     CircularProgressIndicator(Modifier.align(Alignment.Center))
                 uiState.messages.isEmpty() ->
                     Text("هنوز پیامی ارسال نشده", Modifier.align(Alignment.Center))
-                else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(8.dp)) {
-                    items(uiState.messages) { message ->
+                else -> LazyColumn(
+                    state = listState,
+                    reverseLayout = true,
+                    modifier = Modifier.fillMaxSize().padding(8.dp)
+                ) {
+                    items(
+                        items = reversedEntries,
+                        key = { entry ->
+                            when (entry) {
+                                is ChatListEntry.MessageEntry -> entry.message.messageId
+                                is ChatListEntry.DateHeaderEntry -> "date_${entry.dateKey}"
+                            }
+                        }
+                    ) { entry ->
+                        if (entry is ChatListEntry.DateHeaderEntry) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
+                                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = entry.label,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            return@items
+                        }
+
+                        val message = (entry as ChatListEntry.MessageEntry).message
                         val isMine = message.senderId == uiState.currentUid
                         val isPending = message.status == MessageStatus.PENDING
                         val isHighlighted = message.messageId == highlightedMessageId
@@ -352,6 +566,55 @@ fun ChatScreen(
                             horizontalAlignment = if (isMine) Alignment.End else Alignment.Start
                         ) {
                             when (message.type) {
+                                MessageType.WALLPAPER_PROPOSAL -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .padding(4.dp)
+                                            .then(highlightModifier)
+                                            .background(
+                                                color = if (isMine) myBubbleColor.copy(alpha = 0.12f)
+                                                else MaterialTheme.colorScheme.surfaceVariant,
+                                                shape = RoundedCornerShape(12.dp)
+                                            )
+                                            .widthIn(min = 220.dp, max = 240.dp)
+                                            .padding(10.dp)
+                                    ) {
+                                        if (!message.mediaUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = message.mediaUrl,
+                                                contentDescription = "پیشنهاد پس‌زمینه",
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(8.dp))
+                                            )
+                                            Spacer(Modifier.height(6.dp))
+                                        }
+                                        Text(
+                                            text = if (isMine) "پیشنهاد پس‌زمینه ارسال شد"
+                                            else "$partnerName یک پس‌زمینه جدید برای این چت پیشنهاد داد",
+                                            fontSize = 12.sp
+                                        )
+                                        when {
+                                            !isMine && message.proposalStatus == ProposalStatus.PENDING -> {
+                                                Spacer(Modifier.height(8.dp))
+                                                Row {
+                                                    Button(
+                                                        onClick = { viewModel.respondToWallpaperProposal(message, accept = true) },
+                                                        modifier = Modifier.weight(1f)
+                                                    ) { Text("قبول", fontSize = 12.sp) }
+                                                    Spacer(Modifier.width(8.dp))
+                                                    OutlinedButton(
+                                                        onClick = { viewModel.respondToWallpaperProposal(message, accept = false) },
+                                                        modifier = Modifier.weight(1f)
+                                                    ) { Text("رد", fontSize = 12.sp) }
+                                                }
+                                            }
+                                            isMine && message.proposalStatus == ProposalStatus.PENDING ->
+                                                Text("در انتظار پاسخ...", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            message.proposalStatus == ProposalStatus.ACCEPTED ->
+                                                Text("پذیرفته شد ✓", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                }
                                 MessageType.IMAGE -> {
                                     Column(
                                         modifier = Modifier
@@ -374,14 +637,7 @@ fun ChatScreen(
                                             )
                                     ) {
                                         if (!message.mediaUrl.isNullOrBlank()) {
-                                            AsyncImage(
-                                                model = message.mediaUrl,
-                                                contentDescription = "تصویر ارسالی",
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier
-                                                    .size(width = 220.dp, height = 220.dp)
-                                                    .clip(RoundedCornerShape(12.dp))
-                                            )
+                                            ChatBubbleImage(url = message.mediaUrl)
                                         } else {
                                             Box(
                                                 modifier = Modifier.size(width = 220.dp, height = 220.dp),
@@ -418,6 +674,9 @@ fun ChatScreen(
                                     val displayDurationMs = if (isThisPlaying && audioPlaybackState.durationMs > 0)
                                         audioPlaybackState.durationMs
                                     else (message.durationMs ?: 0L)
+                                    // زمانی که در حال پخشه، موقعیت لحظه‌ای رو نشون بده؛ وگرنه کل مدت زمان
+                                    val displayTimeMs = if (isThisPlaying) audioPlaybackState.positionMs
+                                    else (message.durationMs ?: 0L)
 
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -436,7 +695,7 @@ fun ChatScreen(
                                                     if (!isPending) actionsForMessage = message
                                                 }
                                             )
-                                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                                            .padding(horizontal = 10.dp, vertical = 14.dp)
                                             .widthIn(min = 160.dp, max = 220.dp)
                                     ) {
                                         val iconTint = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
@@ -459,21 +718,44 @@ fun ChatScreen(
                                         Spacer(Modifier.width(8.dp))
 
                                         Column(modifier = Modifier.weight(1f)) {
-                                            LinearProgressIndicator(
-                                                progress = { progress },
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(3.dp)
-                                                    .clip(RoundedCornerShape(2.dp)),
-                                                color = iconTint,
-                                                trackColor = iconTint.copy(alpha = 0.3f)
+                                            val isLoaded = isThisPlaying // یعنی این ویس همونیه که الان توی پلیر لود شده (چه پلی چه پاز)
+                                            var dragValue by remember(message.messageId) { mutableStateOf<Float?>(null) }
+                                            val sliderValue = dragValue ?: progress
+
+                                            Slider(
+                                                value = sliderValue,
+                                                onValueChange = { v ->
+                                                    if (isLoaded) {
+                                                        dragValue = v
+                                                        AudioPlayerManager.seekTo((v * audioPlaybackState.durationMs).toLong())
+                                                    }
+                                                },
+                                                onValueChangeFinished = { dragValue = null },
+                                                enabled = isLoaded,
+                                                modifier = Modifier.fillMaxWidth().height(20.dp),
+                                                colors = SliderDefaults.colors(
+                                                    thumbColor = iconTint,
+                                                    activeTrackColor = iconTint,
+                                                    inactiveTrackColor = iconTint.copy(alpha = 0.3f),
+                                                    disabledThumbColor = iconTint,
+                                                    disabledActiveTrackColor = iconTint,
+                                                    disabledInactiveTrackColor = iconTint.copy(alpha = 0.3f)
+                                                )
                                             )
-                                            Spacer(Modifier.height(4.dp))
+                                            Spacer(Modifier.height(2.dp))
                                             Text(
-                                                text = formatDuration(displayDurationMs),
+                                                text = formatDuration(displayTimeMs),
                                                 fontSize = 11.sp,
                                                 color = iconTint.copy(alpha = 0.85f)
                                             )
+                                            if (message.text.isNotBlank()) {
+                                                Text(
+                                                    text = message.text,
+                                                    fontSize = 12.sp,
+                                                    color = iconTint,
+                                                    modifier = Modifier.padding(top = 2.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -552,38 +834,6 @@ fun ChatScreen(
                     }
                 }
             }
-
-            if (uiState.isUploadingImage) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(8.dp)
-                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text("در حال ارسال تصویر...")
-                    }
-                }
-            }
-
-            if (uiState.isUploadingAudio) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(8.dp)
-                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text("در حال ارسال پیام صوتی...")
-                    }
-                }
-            }
         }
 
         uiState.error?.let {
@@ -640,10 +890,10 @@ fun ChatScreen(
 
                     Spacer(Modifier.weight(1f))
 
-                    IconButton(onClick = { viewModel.stopRecordingAndSend() }) {
+                    IconButton(onClick = { viewModel.stopRecording() }) {
                         Icon(
                             imageVector = Icons.Filled.Send,
-                            contentDescription = "ارسال پیام صوتی",
+                            contentDescription = "توقف و پیش‌نمایش",
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -727,11 +977,12 @@ fun ChatScreen(
         val isMine = actionMessage.senderId == uiState.currentUid
         val isImage = actionMessage.type == MessageType.IMAGE
         val isAudio = actionMessage.type == MessageType.AUDIO
+        val isWallpaperProposal = actionMessage.type == MessageType.WALLPAPER_PROPOSAL
 
         ModalBottomSheet(onDismissRequest = { actionsForMessage = null }) {
             Column(modifier = Modifier.padding(bottom = 16.dp)) {
 
-                if (!isImage && !isAudio) {
+                if (!isImage && !isAudio && !isWallpaperProposal) {
                     ListItem(
                         headlineContent = { Text("Copy") },
                         leadingContent = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
@@ -741,7 +992,7 @@ fun ChatScreen(
                         }
                     )
 
-                    ListItem(
+                    if (!isImage && !isAudio && !isWallpaperProposal) { ListItem(
                         headlineContent = { Text("Share") },
                         leadingContent = { Icon(Icons.Filled.Share, contentDescription = null) },
                         modifier = Modifier.clickable {
@@ -752,11 +1003,11 @@ fun ChatScreen(
                             context.startActivity(Intent.createChooser(sendIntent, "Share"))
                             actionsForMessage = null
                         }
-                    )
+                    )}
                 }
 
                 if (isMine) {
-                    if (!isAudio) {
+                    if (!isWallpaperProposal) {
                         ListItem(
                             headlineContent = { Text(if (isImage) "Edit Caption" else "Edit") },
                             leadingContent = { Icon(Icons.Filled.Edit, contentDescription = null) },
@@ -855,31 +1106,105 @@ fun ChatScreen(
             }
         }
     }
+// ── Preview قبل از ارسال پیام صوتی (کپشن) ──
+    val pendingAudio = uiState.pendingRecordedAudio
+    if (pendingAudio != null) {
+        var audioCaption by remember(pendingAudio.file.absolutePath) { mutableStateOf("") }
+        Dialog(onDismissRequest = { viewModel.cancelPendingRecordedAudio() }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                    .padding(16.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("پیام صوتی — ${formatDuration(pendingAudio.durationMs)}")
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = audioCaption,
+                        onValueChange = { audioCaption = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("افزودن توضیح...") }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(onClick = { viewModel.cancelPendingRecordedAudio() }) {
+                        Icon(Icons.Filled.Close, contentDescription = "لغو")
+                    }
+                    IconButton(onClick = { viewModel.sendRecordedAudio(audioCaption) }) {
+                        Icon(Icons.Filled.Send, contentDescription = "ارسال")
+                    }
+                }
+            }
+        }
+    }
 
     // ── نمایش تمام‌صفحه‌ی عکس با تپ ──────────────────────
+    // ── نمایش تمام‌صفحه‌ی عکس با تپ ──────────────────────
+    // ── نمایش تمام‌صفحه‌ی عکس با قابلیت زوم (پینچ + دابل‌تپ) ──
     val fsUrl = fullScreenImageUrl
     if (fsUrl != null) {
         Dialog(
             onDismissRequest = { fullScreenImageUrl = null },
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
+            var scale by remember(fsUrl) { mutableStateOf(1f) }
+            var offsetX by remember(fsUrl) { mutableStateOf(0f) }
+            var offsetY by remember(fsUrl) { mutableStateOf(0f) }
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black)
-                    .clickable { fullScreenImageUrl = null }
             ) {
                 AsyncImage(
                     model = fsUrl,
                     contentDescription = "نمایش تمام‌صفحه تصویر",
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offsetX,
+                            translationY = offsetY
+                        )
+                        .pointerInput(fsUrl) {
+                            detectTransformGestures { _, pan, zoom, _ ->
+                                val newScale = (scale * zoom).coerceIn(1f, 5f)
+                                scale = newScale
+                                if (newScale <= 1f) {
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                } else {
+                                    offsetX += pan.x
+                                    offsetY += pan.y
+                                }
+                            }
+                        }
+                        .pointerInput(fsUrl) {
+                            detectTapGestures(
+                                onDoubleTap = {
+                                    if (scale > 1f) {
+                                        scale = 1f
+                                        offsetX = 0f
+                                        offsetY = 0f
+                                    } else {
+                                        scale = 3f
+                                    }
+                                }
+                            )
+                        }
                 )
                 IconButton(
                     onClick = { fullScreenImageUrl = null },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(16.dp)
+                        .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                 ) {
                     Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
                 }
@@ -991,5 +1316,138 @@ fun ChatScreen(
                 }
             }
         )
+    }
+    // ── دیالوگ تأیید پاک کردن تاریخچه ──────────────
+    if (showClearHistoryDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!uiState.isClearingHistory) showClearHistoryDialog = false },
+            title = { Text("پاک کردن تاریخچه") },
+            text = { Text("آیا مطمئنید؟ تمام پیام‌های این چت پاک می‌شوند اما خود چت باقی می‌ماند.") },
+            confirmButton = {
+                TextButton(
+                    enabled = !uiState.isClearingHistory,
+                    onClick = {
+                        viewModel.clearChatHistory()
+                        showClearHistoryDialog = false
+                    }
+                ) {
+                    Text("پاک کردن", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !uiState.isClearingHistory,
+                    onClick = { showClearHistoryDialog = false }
+                ) {
+                    Text("انصراف")
+                }
+            }
+        )
+    }
+
+// ── دیالوگ تأیید حذف چت ──────────────
+    if (showDeleteChatDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!uiState.isDeletingChat) showDeleteChatDialog = false },
+            title = { Text("حذف چت") },
+            text = { Text("آیا مطمئنید؟ این چت به همراه تمام پیام‌ها برای شما حذف می‌شود.") },
+            confirmButton = {
+                TextButton(
+                    enabled = !uiState.isDeletingChat,
+                    onClick = {
+                        viewModel.deleteChat()
+                        showDeleteChatDialog = false
+                    }
+                ) {
+                    Text("حذف", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !uiState.isDeletingChat,
+                    onClick = { showDeleteChatDialog = false }
+                ) {
+                    Text("انصراف")
+                }
+            }
+        )
+    }
+    // ── لودینگ حین پاک کردن تاریخچه ──────────────
+    if (uiState.isClearingHistory) {
+        Dialog(
+            onDismissRequest = {},
+            properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+        ) {
+            Column(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator()
+                Spacer(Modifier.height(12.dp))
+                Text("در حال پاک کردن تاریخچه...")
+            }
+        }
+    }
+
+// ── لودینگ حین حذف چت ──────────────
+    if (uiState.isDeletingChat) {
+        Dialog(
+            onDismissRequest = {},
+            properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+        ) {
+            Column(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator()
+                Spacer(Modifier.height(12.dp))
+                Text("در حال حذف چت...")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatBubbleImage(url: String) {
+    var naturalSize by remember(url) { mutableStateOf<IntSize?>(null) }
+
+    val painter = rememberAsyncImagePainter(
+        model = url,
+        onState = { state ->
+            if (state is AsyncImagePainter.State.Success) {
+                val d = state.result.drawable
+                if (d.intrinsicWidth > 0 && d.intrinsicHeight > 0) {
+                    naturalSize = IntSize(d.intrinsicWidth, d.intrinsicHeight)
+                }
+            }
+        }
+    )
+
+    val (boxWidth, boxHeight, scale) = remember(naturalSize) {
+        val size = naturalSize
+        if (size == null) Triple(IMAGE_MAX_WIDTH, 200.dp, ContentScale.Crop) // حالت لودینگ
+        else computeBubbleImageSize(size.width, size.height)
+    }
+
+    Box(
+        modifier = Modifier
+            .size(width = boxWidth, height = boxHeight)
+            .clip(RoundedCornerShape(12.dp))
+    ) {
+        Image(
+            painter = painter,
+            contentDescription = "تصویر ارسالی",
+            contentScale = scale,
+            modifier = Modifier.fillMaxSize()
+        )
+        if (naturalSize == null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+            }
+        }
     }
 }

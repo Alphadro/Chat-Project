@@ -3,6 +3,7 @@ package fit.vcare.apps.domain.repository
 import android.content.Context
 import fit.vcare.apps.domain.model.Conversation
 import fit.vcare.apps.domain.model.Message
+import fit.vcare.apps.domain.model.ProposalStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 
@@ -40,6 +41,7 @@ interface ChatRepository {
         durationMs: Long,
         mimeType: String,
         fileSize: Long,
+        caption: String = "",
         messageId: String? = null
     ): Result<Message>
 
@@ -92,4 +94,22 @@ interface ChatRepository {
     ): StateFlow<Long?>
 
     fun stopObservingPartnerReadState(conversationId: String)
+
+    suspend fun sendWallpaperProposal(
+        context: Context,
+        conversationId: String,
+        senderId: String,
+        backgroundUrl: String,
+        messageId: String? = null
+    ): Result<Message>
+
+    suspend fun updateWallpaperProposalStatus(
+        context: Context,
+        conversationId: String,
+        messageId: String,
+        status: ProposalStatus
+    ): Result<Unit>
+    suspend fun clearChatHistory(context: Context, conversationId: String): Result<Unit>
+
+    suspend fun deleteChatForMe(context: Context, conversationId: String, myUid: String): Result<Unit>
 }

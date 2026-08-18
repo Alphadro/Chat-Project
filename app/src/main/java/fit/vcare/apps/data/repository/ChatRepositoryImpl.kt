@@ -6,6 +6,7 @@ import fit.vcare.apps.domain.model.Conversation
 import fit.vcare.apps.domain.model.Message
 import fit.vcare.apps.domain.model.MessageStatus
 import fit.vcare.apps.domain.model.MessageType
+import fit.vcare.apps.domain.model.ProposalStatus
 import fit.vcare.apps.domain.repository.ChatRepository
 import fit.vcare.apps.tools.FirestoreApiClient
 import kotlinx.coroutines.*
@@ -128,6 +129,7 @@ object ChatRepositoryImpl : ChatRepository {
         durationMs: Long,
         mimeType: String,
         fileSize: Long,
+        caption: String,
         messageId: String?
     ): Result<Message> {
         if (mediaUrl.isBlank()) return Result.failure(IllegalArgumentException("آدرس فایل صوتی نامعتبر است"))
@@ -138,7 +140,7 @@ object ChatRepositoryImpl : ChatRepository {
             messageId = newId,
             conversationId = conversationId,
             senderId = senderId,
-            text = "",
+            text = caption.trim(),
             type = MessageType.AUDIO,
             mediaUrl = mediaUrl,
             createdAt = now,
@@ -197,10 +199,90 @@ object ChatRepositoryImpl : ChatRepository {
         return Result.success(Unit)
     }
 
+    override suspend fun sendWallpaperProposal(
+        context: Context,
+        conversationId: String,
+        senderId: String,
+        backgroundUrl: String,
+        messageId: String?
+    ): Result<Message> {
+        if (backgroundUrl.isBlank()) return Result.failure(IllegalArgumentException("آدرس پس‌زمینه نامعتبر است"))
+
+        val now = FirestoreApiClient.getServerTimeMillis()
+        val newId = messageId ?: UUID.randomUUID().toString()
+        val message = Message(
+            messageId = newId,
+            conversationId = conversationId,
+            senderId = senderId,
+            text = "",
+            type = MessageType.WALLPAPER_PROPOSAL,
+            mediaUrl = backgroundUrl,
+            createdAt = now,
+            status = MessageStatus.SENT,
+            proposalStatus = ProposalStatus.PENDING
+        )
+
+        val ok = FirestoreApiClient.write(context, "conversations/$conversationId/messages/$newId", message.toJson())
+        if (!ok) return Result.failure(Exception("ارسال پیشنهاد پس‌زمینه ناموفق بود"))
+
+        updateConversationPreview(context, conversationId, previewText = previewTextFor(message), senderId = senderId, at = now)
+        return Result.success(message)
+    }
+
+    override suspend fun updateWallpaperProposalStatus(
+        context: Context,
+        conversationId: String,
+        messageId: String,
+        status: ProposalStatus
+    ): Result<Unit> {
+        val path = "conversations/$conversationId/messages/$messageId"
+        val existingRaw = FirestoreApiClient.read(context, path)
+            ?: return Result.failure(Exception("پیام یافت نشد"))
+        val existingDoc = existingRaw.unwrapDocument()
+        if (existingDoc.length() == 0) return Result.failure(Exception("پیام یافت نشد"))
+
+        val existing = existingRaw.toMessage(fallbackId = messageId, conversationId = conversationId)
+        val updated = existing.copy(proposalStatus = status)
+
+        val ok = FirestoreApiClient.write(context, path, updated.toJson())
+        return if (ok) Result.success(Unit) else Result.failure(Exception("بروزرسانی وضعیت پیشنهاد ناموفق بود"))
+    }
+    override suspend fun clearChatHistory(context: Context, conversationId: String): Result<Unit> {
+        return try {
+            val messages = getMessages(context, conversationId).getOrDefault(emptyList())
+            messages.forEach { msg ->
+                FirestoreApiClient.delete(context, "conversations/$conversationId/messages/${msg.messageId}")
+            }
+
+            // پیش‌نمایش آخرین پیام توی لیست چت‌ها هم پاک بشه
+            val currentConv = getConversation(context, conversationId).getOrNull()
+            if (currentConv != null) {
+                val cleared = currentConv.copy(lastMessage = null, lastMessageAt = null, lastMessageSenderId = null)
+                FirestoreApiClient.write(context, "conversations/$conversationId", cleared.toJson())
+            }
+
+            messageStates[conversationId]?.value = emptyList()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun deleteChatForMe(context: Context, conversationId: String, myUid: String): Result<Unit> {
+        return try {
+            clearChatHistory(context, conversationId)
+            val ok = FirestoreApiClient.delete(context, "users/$myUid/partner_relationships/$conversationId")
+            if (ok) Result.success(Unit) else Result.failure(Exception("حذف چت ناموفق بود"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    // در previewTextFor موجود، یک case اضافه کن:
     private fun previewTextFor(message: Message): String {
         return when (message.type) {
             MessageType.IMAGE -> if (message.text.isNotBlank()) "📷 ${message.text}" else "📷 عکس"
             MessageType.AUDIO -> "🎤 پیام صوتی"
+            MessageType.WALLPAPER_PROPOSAL -> "🖼️ پیشنهاد پس‌زمینه چت"
             else -> message.text
         }
     }

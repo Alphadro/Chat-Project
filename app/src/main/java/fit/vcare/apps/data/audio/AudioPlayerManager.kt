@@ -63,8 +63,15 @@ object AudioPlayerManager {
         val player = ensurePlayer(context)
 
         if (currentMessageId == messageId) {
+            if (player.playbackState == Player.STATE_ENDED) {
+                // ویس تموم شده -> برای replay باید اول به ابتدا برگرده
+                player.seekTo(0)
+                _state.value = _state.value.copy(positionMs = 0L)
+                player.play()
+                return
+            }
             if (player.isPlaying) {
-                player.pause()
+                pause()
             } else {
                 player.play()
             }
@@ -88,8 +95,10 @@ object AudioPlayerManager {
 
     fun pause() {
         exoPlayer?.pause()
+        exoPlayer?.let { player ->
+            _state.value = _state.value.copy(positionMs = player.currentPosition.coerceAtLeast(0L))
+        }
     }
-
     fun stop() {
         exoPlayer?.stop()
         currentMessageId = null
@@ -99,6 +108,7 @@ object AudioPlayerManager {
 
     fun seekTo(positionMs: Long) {
         exoPlayer?.seekTo(positionMs)
+        _state.value = _state.value.copy(positionMs = positionMs)
     }
 
     private fun startProgressLoop() {
@@ -112,7 +122,7 @@ object AudioPlayerManager {
                         durationMs = player.duration.coerceAtLeast(0L)
                     )
                 }
-                delay(200L)
+                delay(80L)
             }
         }
     }

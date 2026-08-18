@@ -1,5 +1,5 @@
 package fit.vcare.apps.viewmodel
-
+import org.json.JSONArray
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -11,9 +11,13 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewModelScope
 import fit.vcare.apps.data.audio.AudioPlayerManager
 import fit.vcare.apps.data.audio.AudioRecorder
+import fit.vcare.apps.data.audio.RecordedAudio
 import fit.vcare.apps.data.local.ChatAppearancePrefs
+import fit.vcare.apps.data.mapper.toJson
+import fit.vcare.apps.data.mapper.toMessage
 import fit.vcare.apps.data.remote.MediaRepositoryImpl
 import fit.vcare.apps.data.repository.ChatRepositoryImpl
+import fit.vcare.apps.data.repository.LocalDataCache
 import fit.vcare.apps.data.repository.PartnerRepositoryImpl
 import fit.vcare.apps.data.repository.getMyUidOrEmpty
 import fit.vcare.apps.domain.model.ChatThemePresets
@@ -21,6 +25,7 @@ import fit.vcare.apps.domain.model.Message
 import fit.vcare.apps.domain.model.MessageStatus
 import fit.vcare.apps.domain.model.MessageType
 import fit.vcare.apps.domain.model.PartnerPresence
+import fit.vcare.apps.domain.model.ProposalStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -42,6 +47,7 @@ data class ChatUiState(
     val partnerName: String = "",
     val currentUid: String = "",
     val partnerUid: String = "",
+    val partnerPhotoUrl: String? = null,
     val isSending: Boolean = false,
     val isUploadingImage: Boolean = false,
     val editingMessageId: String? = null,
@@ -55,7 +61,12 @@ data class ChatUiState(
     val recordingDurationMs: Long = 0L,
     val isUploadingAudio: Boolean = false,
     val recordingError: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val isUploadingBackground: Boolean = false,
+    val pendingRecordedAudio: RecordedAudio? = null,
+    val isClearingHistory: Boolean = false,
+    val isDeletingChat: Boolean = false,
+    val chatDeleted: Boolean = false,
 )
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
@@ -99,31 +110,61 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     init {
         ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
     }
+    private fun cacheKeyFor(conversationId: String) = "messages_$conversationId"
 
+    private fun loadCachedMessages(conversationId: String): List<Message> {
+        val json = LocalDataCache.getString(context, cacheKeyFor(conversationId)) ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(json)
+            (0 until arr.length()).map { i ->
+                arr.getJSONObject(i).toMessage(fallbackId = "", conversationId = conversationId)
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun saveCachedMessages(conversationId: String, messages: List<Message>) {
+        val arr = JSONArray()
+        messages.forEach { arr.put(it.toJson()) }
+        LocalDataCache.putString(context, cacheKeyFor(conversationId), arr.toString())
+    }
     fun startObserving(conversationId: String, partnerUid: String, partnerName: String) {
         this.conversationId = conversationId
         this.isChatScreenActive = true
         val myUid = getMyUidOrEmpty(context)
         lastWrittenReadAt = 0L
-        _serverMessages.value = emptyList()
         _pendingMessages.value = emptyList()
 
-        val savedBackground = ChatAppearancePrefs.getBackgroundUri(context, conversationId)
-        val savedTheme = ChatAppearancePrefs.getThemeKey(context, conversationId)
+        // کش محلی پیام‌های این چت رو فوری بخون و نشون بده
+        val cachedMessages = loadCachedMessages(conversationId)
+        _serverMessages.value = cachedMessages
+
+        val savedBackground = ChatAppearancePrefs.getEffectiveBackgroundUri(context, conversationId)
+        val savedTheme = ChatAppearancePrefs.getEffectiveThemeKey(context, conversationId)
 
         _uiState.value = _uiState.value.copy(
             partnerName = partnerName,
             partnerUid = partnerUid,
             currentUid = myUid,
-            isLoading = true,
+            isLoading = cachedMessages.isEmpty(), // اگه کش داشتیم دیگه اسپینر نشون نده
+            messages = cachedMessages,
             backgroundUri = savedBackground,
             themeKey = savedTheme
         )
-
+        viewModelScope.launch {
+            PartnerRepositoryImpl.getUserBasicInfo(context, partnerUid)
+                .onSuccess { info ->
+                    _uiState.value = _uiState.value.copy(partnerPhotoUrl = info.photoUrl)
+                }
+        }
         val messagesFlow = ChatRepositoryImpl.observeMessages(viewModelScope, context, conversationId, 3000L)
         viewModelScope.launch {
             messagesFlow.collectLatest { serverMsgs ->
-                _serverMessages.value = serverMsgs
+                if (serverMsgs.isNotEmpty() || cachedMessages.isEmpty()) {
+                    // فقط وقتی سرور چیزی برگردوند (یا از اول کشی نبود) وضعیت رو با نتیجه‌ی سرور جایگزین کن،
+                    // تا یک پاسخ خالی موقت آفلاین، کش موجود رو پاک نکنه
+                    _serverMessages.value = serverMsgs
+                    saveCachedMessages(conversationId, serverMsgs)
+                }
                 val serverIds = serverMsgs.map { it.messageId }.toSet()
                 _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId in serverIds }
 
@@ -437,6 +478,105 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+
+
+    /** ضبط رو متوقف می‌کنه و preview (با امکان کپشن) نشون می‌ده — هنوز چیزی آپلود/ارسال نمی‌شه */
+    fun stopRecording() {
+        if (!_uiState.value.isRecording) return
+        recordingTimerJob?.cancel()
+        recordingTimerJob = null
+
+        val recorded = audioRecorder.stop()
+        _uiState.value = _uiState.value.copy(isRecording = false, recordingDurationMs = 0L)
+
+        if (recorded == null) {
+            _uiState.value = _uiState.value.copy(recordingError = "ضبط صدا خیلی کوتاه بود یا ناموفق بود")
+            return
+        }
+        _uiState.value = _uiState.value.copy(pendingRecordedAudio = recorded)
+    }
+
+    fun cancelPendingRecordedAudio() {
+        _uiState.value.pendingRecordedAudio?.file?.delete()
+        _uiState.value = _uiState.value.copy(pendingRecordedAudio = null)
+    }
+
+    /** ارسال نهایی فایل ضبط‌شده به همراه کپشن اختیاری */
+    fun sendRecordedAudio(caption: String = "") {
+        val recorded = _uiState.value.pendingRecordedAudio ?: return
+        val convId = conversationId ?: run { recorded.file.delete(); return }
+        val myUid = getMyUidOrEmpty(context)
+
+        _uiState.value = _uiState.value.copy(pendingRecordedAudio = null)
+
+        val tempId = UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
+        val fileSize = recorded.file.length()
+        val trimmedCaption = caption.trim()
+
+        val pendingMsg = Message(
+            messageId = tempId,
+            conversationId = convId,
+            senderId = myUid,
+            text = trimmedCaption,
+            type = MessageType.AUDIO,
+            mediaUrl = recorded.file.absolutePath,
+            createdAt = now,
+            status = MessageStatus.PENDING,
+            durationMs = recorded.durationMs,
+            mimeType = recorded.mimeType,
+            fileSize = fileSize
+        )
+        _pendingMessages.value = _pendingMessages.value + pendingMsg
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isUploadingAudio = true, error = null)
+
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { recorded.file.readBytes() }.getOrNull()
+            }
+            if (bytes == null) {
+                _uiState.value = _uiState.value.copy(isUploadingAudio = false, error = "خواندن فایل صوتی ناموفق بود")
+                _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
+                recorded.file.delete()
+                return@launch
+            }
+
+            MediaRepositoryImpl.uploadAudio(context, bytes, recorded.mimeType)
+                .onSuccess { url ->
+                    ChatRepositoryImpl.sendAudioMessage(
+                        context = context, conversationId = convId, senderId = myUid,
+                        mediaUrl = url, durationMs = recorded.durationMs, mimeType = recorded.mimeType,
+                        fileSize = fileSize, caption = trimmedCaption, messageId = tempId
+                    ).onSuccess {
+                        _uiState.value = _uiState.value.copy(isUploadingAudio = false)
+                        _pendingMessages.value = _pendingMessages.value.map {
+                            if (it.messageId == tempId) it.copy(status = MessageStatus.SENT, mediaUrl = url) else it
+                        }
+                        recorded.file.delete()
+                    }.onFailure { e ->
+                        _uiState.value = _uiState.value.copy(isUploadingAudio = false, error = e.message ?: "ارسال پیام صوتی ناموفق بود")
+                        _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
+                        recorded.file.delete()
+                    }
+                }
+                .onFailure { e ->
+                    _uiState.value = _uiState.value.copy(isUploadingAudio = false, error = e.message ?: "آپلود صدا ناموفق بود")
+                    _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
+                    recorded.file.delete()
+                }
+        }
+    }
+
+
+
+
+
+
+
+
+
+
     fun clearRecordingError() {
         _uiState.value = _uiState.value.copy(recordingError = null)
     }
@@ -484,7 +624,43 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 .onFailure { e -> _uiState.value = _uiState.value.copy(error = e.message ?: "حذف پیام ناموفق بود") }
         }
     }
+    fun clearChatHistory() {
+        val convId = conversationId ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isClearingHistory = true, error = null)
+            ChatRepositoryImpl.clearChatHistory(context, convId)
+                .onSuccess {
+                    _pendingMessages.value = emptyList()
+                    _serverMessages.value = emptyList()
+                    saveCachedMessages(convId, emptyList())
+                    _uiState.value = _uiState.value.copy(isClearingHistory = false, messages = emptyList())
+                }
+                .onFailure { e ->
+                    _uiState.value = _uiState.value.copy(
+                        isClearingHistory = false,
+                        error = e.message ?: "پاک کردن تاریخچه ناموفق بود"
+                    )
+                }
+        }
+    }
 
+    fun deleteChat() {
+        val convId = conversationId ?: return
+        val myUid = getMyUidOrEmpty(context)
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isDeletingChat = true, error = null)
+            ChatRepositoryImpl.deleteChatForMe(context, convId, myUid)
+                .onSuccess {
+                    _uiState.value = _uiState.value.copy(isDeletingChat = false, chatDeleted = true)
+                }
+                .onFailure { e ->
+                    _uiState.value = _uiState.value.copy(
+                        isDeletingChat = false,
+                        error = e.message ?: "حذف چت ناموفق بود"
+                    )
+                }
+        }
+    }
     fun notifyTyping() {
         val convId = conversationId ?: return
         val myUid = getMyUidOrEmpty(context)
@@ -514,8 +690,87 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setChatBackground(uri: String?) {
         val convId = conversationId ?: return
-        ChatAppearancePrefs.setBackgroundUri(context, convId, uri)
-        _uiState.value = _uiState.value.copy(backgroundUri = uri)
+
+        if (uri.isNullOrBlank()) {
+            ChatAppearancePrefs.setBackgroundUri(context, convId, null)
+            _uiState.value = _uiState.value.copy(
+                backgroundUri = ChatAppearancePrefs.getEffectiveBackgroundUri(context, convId)
+            )
+            return
+        }
+
+        val myUid = getMyUidOrEmpty(context)
+        val parsedUri = Uri.parse(uri)
+
+        val tempId = UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
+        val pendingMsg = Message(
+            messageId = tempId,
+            conversationId = convId,
+            senderId = myUid,
+            text = "",
+            type = MessageType.WALLPAPER_PROPOSAL,
+            mediaUrl = uri, // پیش‌نمایش محلی موقت تا قبل از تأیید سرور
+            createdAt = now,
+            status = MessageStatus.PENDING,
+            proposalStatus = ProposalStatus.PENDING
+        )
+        _pendingMessages.value = _pendingMessages.value + pendingMsg
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(error = null)
+
+            val bytes = withContext(Dispatchers.IO) { runCatching { compressImage(parsedUri) } }.getOrNull()
+            if (bytes == null) {
+                _uiState.value = _uiState.value.copy(error = "خواندن تصویر پس‌زمینه ناموفق بود")
+                _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
+                return@launch
+            }
+
+            MediaRepositoryImpl.uploadImage(context, bytes)
+                .onSuccess { url ->
+                    // فوراً برای خودم اعمال می‌شه
+                    ChatAppearancePrefs.setBackgroundUri(context, convId, url)
+                    _uiState.value = _uiState.value.copy(backgroundUri = url)
+
+                    ChatRepositoryImpl.sendWallpaperProposal(context, convId, myUid, url, messageId = tempId)
+                        .onSuccess {
+                            _pendingMessages.value = _pendingMessages.value.map {
+                                if (it.messageId == tempId) it.copy(status = MessageStatus.SENT, mediaUrl = url) else it
+                            }
+                        }
+                        .onFailure { e ->
+                            _uiState.value = _uiState.value.copy(error = e.message ?: "ارسال پیشنهاد به طرف مقابل ناموفق بود")
+                            _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
+                        }
+                }
+                .onFailure { e ->
+                    _uiState.value = _uiState.value.copy(error = e.message ?: "آپلود پس‌زمینه ناموفق بود")
+                    _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
+                }
+        }
+    }
+
+    fun respondToWallpaperProposal(message: Message, accept: Boolean) {
+        val convId = conversationId ?: return
+        val myUid = getMyUidOrEmpty(context)
+        val bgUrl = message.mediaUrl
+
+        viewModelScope.launch {
+            if (accept && !bgUrl.isNullOrBlank()) {
+                ChatAppearancePrefs.setBackgroundUri(context, convId, bgUrl)
+                _uiState.value = _uiState.value.copy(backgroundUri = bgUrl)
+
+                ChatRepositoryImpl.updateWallpaperProposalStatus(context, convId, message.messageId, ProposalStatus.ACCEPTED)
+
+                val myName = PartnerRepositoryImpl.getUserBasicInfo(context, myUid).getOrNull()?.displayName ?: "کاربر"
+                ChatRepositoryImpl.sendMessage(context, convId, myUid, "🖼️ $myName پیشنهاد پس‌زمینه را پذیرفت")
+            } else {
+                // رد کردن -> پیام پیشنهاد حذف می‌شه
+                ChatRepositoryImpl.deleteMessage(context, convId, message.messageId)
+            }
+            ChatRepositoryImpl.refreshNow(context, convId)
+        }
     }
 
     fun setChatTheme(themeKey: String) {

@@ -1,7 +1,8 @@
 package fit.vcare.apps.domain.model
 
-enum class MessageType { TEXT, IMAGE, VIDEO, FILE, AUDIO, SYSTEM }
+enum class MessageType { TEXT, IMAGE, VIDEO, FILE, AUDIO, SYSTEM, WALLPAPER_PROPOSAL }
 enum class MessageStatus { PENDING, SENT, DELIVERED, READ }
+enum class ProposalStatus { PENDING, ACCEPTED, REJECTED }
 
 data class Conversation(
     val conversationId: String,
@@ -23,10 +24,12 @@ data class Message(
     val createdAt: Long,
     val status: MessageStatus = MessageStatus.SENT,
     val isEdited: Boolean = false,
-    // فقط برای MessageType.AUDIO پر می‌شوند
+    // فقط برای MessageType.AUDIO
     val durationMs: Long? = null,
     val mimeType: String? = null,
-    val fileSize: Long? = null
+    val fileSize: Long? = null,
+    // فقط برای MessageType.WALLPAPER_PROPOSAL — mediaUrl همون آدرس عکس پیشنهادیه
+    val proposalStatus: ProposalStatus? = null
 )
 
 data class ReadState(

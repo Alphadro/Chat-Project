@@ -2,6 +2,9 @@ package fit.vcare.apps
 
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -14,6 +17,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
@@ -69,8 +74,14 @@ fun MainScreen() {
                     }
                 }
             }
-        ) { innerPadding ->
-            AppNavigation(navController = navController, innerPadding = innerPadding)
+        ) {innerPadding ->
+            val effectivePadding = PaddingValues(
+                top = innerPadding.calculateTopPadding(),
+                bottom = if (showBottomBar) innerPadding.calculateBottomPadding() else 0.dp,
+                start = innerPadding.calculateStartPadding(LayoutDirection.Ltr),
+                end = innerPadding.calculateEndPadding(LayoutDirection.Ltr)
+            )
+            AppNavigation(navController = navController, innerPadding = effectivePadding)
         }
     }
 }
