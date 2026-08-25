@@ -1,6 +1,7 @@
 package fit.vcare.apps.data.repository
 
 import android.content.Context
+import android.util.Log
 import fit.vcare.apps.data.mapper.*
 import fit.vcare.apps.domain.model.*
 import fit.vcare.apps.domain.repository.PartnerRepository
@@ -20,12 +21,15 @@ object PartnerRepositoryImpl : PartnerRepository {
 
     private val presenceJobs = ConcurrentHashMap<String, Job>()
     private val presenceStates = ConcurrentHashMap<String, MutableStateFlow<PartnerPresence?>>()
+    private val relationshipJobs = ConcurrentHashMap<String, Job>()
+    private val relationshipStates = ConcurrentHashMap<String, MutableStateFlow<Relationship?>>()
 
     private fun relationshipIdOf(uidA: String, uidB: String): String =
         listOf(uidA, uidB).sorted().joinToString("_")
 
     override suspend fun createInvite(context: Context): Result<PartnerInvite> {
-        val uid = getUid(context) ?: return Result.failure(PartnerException(PartnerError.Unauthorized))
+        val uid =
+            getUid(context) ?: return Result.failure(PartnerException(PartnerError.Unauthorized))
         val now = FirestoreApiClient.getServerTimeMillis()
         val token = UUID.randomUUID().toString()
 
@@ -63,8 +67,22 @@ object PartnerRepositoryImpl : PartnerRepository {
         return Result.success(raw.toPartnerUserInfo(uid))
     }
 
+    private suspend fun writeWithRetry(
+        context: Context,
+        path: String,
+        data: JSONObject,
+        attempts: Int = 3
+    ): Boolean {
+        repeat(attempts) { attempt ->
+            if (FirestoreApiClient.write(context, path, data)) return true
+            if (attempt < attempts - 1) delay(500L * (attempt + 1)) // 500ms, 1000ms, ...
+        }
+        return false
+    }
+
     override suspend fun acceptInvite(context: Context, token: String): Result<Relationship> {
-        val myUid = getUid(context) ?: return Result.failure(PartnerException(PartnerError.Unauthorized))
+        val myUid =
+            getUid(context) ?: return Result.failure(PartnerException(PartnerError.Unauthorized))
 
         val inviteResult = getInvite(context, token)
         val invite = inviteResult.getOrElse { return Result.failure(it) }
@@ -84,9 +102,37 @@ object PartnerRepositoryImpl : PartnerRepository {
         val relationshipId = relationshipIdOf(invite.createdBy, myUid)
 
         val existingRaw = FirestoreApiClient.read(context, "relationships/$relationshipId")
-        if (existingRaw != null && !existingRaw.has("error") && existingRaw.unwrapDocument().length() > 0) {
+        if (existingRaw != null && !existingRaw.has("error") && existingRaw.unwrapDocument()
+                .length() > 0
+        ) {
             val existing = existingRaw.toRelationship(relationshipId)
             if (existing.status == RelationshipStatus.ACTIVE) {
+                // حتی اگه رابطه از قبل فعال بود، ایندکس هر دو طرف رو دوباره بنویس
+                // (شاید یکی از طرفین چت رو حذف کرده و ایندکسش پاک شده باشه)
+                val entryForA = RelationshipIndexEntry(
+                    relationshipId,
+                    existing.otherUid(existing.userA),
+                    existing.status,
+                    existing.createdAt,
+                    now
+                )
+                val entryForB = RelationshipIndexEntry(
+                    relationshipId,
+                    existing.otherUid(existing.userB),
+                    existing.status,
+                    existing.createdAt,
+                    now
+                )
+                writeWithRetry(
+                    context,
+                    "users/${existing.userA}/partner_relationships/$relationshipId",
+                    entryForA.toJson()
+                )
+                writeWithRetry(
+                    context,
+                    "users/${existing.userB}/partner_relationships/$relationshipId",
+                    entryForB.toJson()
+                )
                 return Result.success(existing)
             }
             if (existing.status == RelationshipStatus.BLOCKED) {
@@ -107,26 +153,62 @@ object PartnerRepositoryImpl : PartnerRepository {
             connectedAt = now
         )
 
-        val relOk = FirestoreApiClient.write(context, "relationships/$relationshipId", relationship.toJson())
+        // ── نوشتن حیاتی: بدون این، رابطه‌ای وجود نداره، پس اگه بعد از retry هم fail بشه، کل عملیات fail می‌شه ──
+        val relOk = writeWithRetry(context, "relationships/$relationshipId", relationship.toJson())
         if (!relOk) return Result.failure(PartnerException(PartnerError.NetworkError))
 
+        // ── نوشتن‌های best-effort: اگه بعد از retry هم fail بشن، عملیات رو fail نمی‌کنیم چون
+        //    relationship اصلی ساخته شده و self-heal بعداً جبران می‌کنه ──
         val updatedInvite = invite.copy(
             status = InviteStatus.ACCEPTED,
             acceptedBy = myUid,
             relationshipId = relationshipId
         )
-        FirestoreApiClient.write(context, "partner_invites/$token", updatedInvite.toJson())
+        val inviteOk = writeWithRetry(context, "partner_invites/$token", updatedInvite.toJson())
+        if (!inviteOk) {
+            Log.w(
+                "PartnerRepository",
+                "بروزرسانی وضعیت دعوت‌نامه ناموفق بود بعد از retry — نادیده گرفته شد"
+            )
+        }
 
-        val entryForA = RelationshipIndexEntry(relationshipId, relationship.otherUid(relationship.userA), relationship.status, now, now)
-        val entryForB = RelationshipIndexEntry(relationshipId, relationship.otherUid(relationship.userB), relationship.status, now, now)
-        FirestoreApiClient.write(context, "users/${relationship.userA}/partner_relationships/$relationshipId", entryForA.toJson())
-        FirestoreApiClient.write(context, "users/${relationship.userB}/partner_relationships/$relationshipId", entryForB.toJson())
+        val entryForA = RelationshipIndexEntry(
+            relationshipId,
+            relationship.otherUid(relationship.userA),
+            relationship.status,
+            now,
+            now
+        )
+        val entryForB = RelationshipIndexEntry(
+            relationshipId,
+            relationship.otherUid(relationship.userB),
+            relationship.status,
+            now,
+            now
+        )
+        val indexAOk = writeWithRetry(
+            context,
+            "users/${relationship.userA}/partner_relationships/$relationshipId",
+            entryForA.toJson()
+        )
+        val indexBOk = writeWithRetry(
+            context,
+            "users/${relationship.userB}/partner_relationships/$relationshipId",
+            entryForB.toJson()
+        )
+        if (!indexAOk || !indexBOk) {
+            Log.w(
+                "PartnerRepository",
+                "نوشتن ایندکس رابطه ناموفق بود بعد از retry (A=$indexAOk, B=$indexBOk) — self-heal بعداً جبران می‌کنه"
+            )
+        }
 
         return Result.success(relationship)
     }
 
     override suspend fun getMyActiveRelationships(context: Context): Result<List<RelationshipIndexEntry>> {
-        val uid = getUid(context) ?: return Result.failure(PartnerException(PartnerError.Unauthorized))
+        val uid =
+            getUid(context) ?: return Result.failure(PartnerException(PartnerError.Unauthorized))
         val docs = FirestoreApiClient.list(context, "users/$uid/partner_relationships")
         val entries = docs.map { it.toRelationshipIndexEntry() }
             .filter { it.status == RelationshipStatus.ACTIVE }
@@ -138,7 +220,8 @@ object PartnerRepositoryImpl : PartnerRepository {
      * حالا حتی اگر read ناموفق باشد، یک document جدید با فیلدهای حضور ساخته و نوشته می‌شود.
      */
     override suspend fun updatePresence(context: Context, isOnline: Boolean): Result<Unit> {
-        val uid = getUid(context) ?: return Result.failure(PartnerException(PartnerError.Unauthorized))
+        val uid =
+            getUid(context) ?: return Result.failure(PartnerException(PartnerError.Unauthorized))
         val path = "users/$uid"
         val now = FirestoreApiClient.getServerTimeMillis()
 
@@ -189,6 +272,109 @@ object PartnerRepositoryImpl : PartnerRepository {
         presenceJobs[uid]?.cancel()
         presenceJobs.remove(uid)
     }
-}
 
+    override suspend fun updateRelationshipStatus(
+        context: Context,
+        relationshipId: String,
+        status: RelationshipStatus,
+        blockedBy: String?
+    ): Result<Unit> {
+        val existingRaw = FirestoreApiClient.read(context, "relationships/$relationshipId")
+            ?: return Result.failure(PartnerException(PartnerError.NetworkError))
+        if (existingRaw.has("error") || existingRaw.unwrapDocument().length() == 0) {
+            return Result.failure(PartnerException(PartnerError.NetworkError))
+        }
+
+        val relationship = existingRaw.toRelationship(relationshipId)
+        val updated = relationship.copy(status = status, blockedBy = blockedBy)
+
+        val ok =
+            FirestoreApiClient.write(context, "relationships/$relationshipId", updated.toJson())
+        if (!ok) return Result.failure(PartnerException(PartnerError.NetworkError))
+
+        // اگه رابطه واقعاً تموم شده (ENDED)، ایندکس دو طرف هم آپدیت می‌شه تا از لیست چت‌ها حذف بشه
+        if (status == RelationshipStatus.ENDED) {
+            val now = FirestoreApiClient.getServerTimeMillis()
+            val entryForA = RelationshipIndexEntry(
+                relationshipId,
+                updated.otherUid(updated.userA),
+                status,
+                updated.createdAt,
+                now
+            )
+            val entryForB = RelationshipIndexEntry(
+                relationshipId,
+                updated.otherUid(updated.userB),
+                status,
+                updated.createdAt,
+                now
+            )
+            writeWithRetry(
+                context,
+                "users/${updated.userA}/partner_relationships/$relationshipId",
+                entryForA.toJson()
+            )
+            writeWithRetry(
+                context,
+                "users/${updated.userB}/partner_relationships/$relationshipId",
+                entryForB.toJson()
+            )
+        }
+        // برای BLOCKED/ACTIVE عمداً ایندکس رو دست نمی‌زنیم — چت باید توی لیست بمونه، فقط داخل چت قفل می‌شه
+
+        return Result.success(Unit)
+    }
+
+    override suspend fun reportPartner(
+        context: Context,
+        relationshipId: String,
+        reportedUid: String,
+        reason: String
+    ): Result<Unit> {
+        val myUid =
+            getUid(context) ?: return Result.failure(PartnerException(PartnerError.Unauthorized))
+        val now = FirestoreApiClient.getServerTimeMillis()
+        val reportId = UUID.randomUUID().toString()
+        val data = JSONObject().apply {
+            put("reportId", reportId)
+            put("relationshipId", relationshipId)
+            put("reportedBy", myUid)
+            put("reportedUid", reportedUid)
+            put("reason", reason)
+            put("createdAt", now)
+        }
+        val ok = FirestoreApiClient.write(context, "reports/$reportId", data)
+        return if (ok) Result.success(Unit) else Result.failure(PartnerException(PartnerError.NetworkError))
+    }
+
+    override fun observeRelationshipStatus(
+        scope: CoroutineScope,
+        context: Context,
+        relationshipId: String,
+        intervalMs: Long
+    ): StateFlow<Relationship?> {
+        val state = relationshipStates.getOrPut(relationshipId) { MutableStateFlow(null) }
+        relationshipJobs[relationshipId]?.cancel()
+
+        val job = scope.launch(Dispatchers.IO) {
+            while (isActive) {
+                val raw = FirestoreApiClient.read(context, "relationships/$relationshipId")
+                if (raw != null && !raw.has("error")) {
+                    val doc = raw.unwrapDocument()
+                    if (doc.length() > 0) {
+                        state.value = raw.toRelationship(relationshipId)
+                    }
+                }
+                delay(intervalMs)
+            }
+        }
+        relationshipJobs[relationshipId] = job
+        return state.asStateFlow()
+    }
+
+    override fun stopObservingRelationshipStatus(relationshipId: String) {
+        relationshipJobs[relationshipId]?.cancel()
+        relationshipJobs.remove(relationshipId)
+    }
+}
 class PartnerException(val error: PartnerError) : Exception(error.message)

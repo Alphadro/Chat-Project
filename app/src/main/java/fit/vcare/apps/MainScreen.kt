@@ -1,6 +1,7 @@
 package fit.vcare.apps
 
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
@@ -14,6 +15,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,12 +33,18 @@ data class BottomNavItem(
     val icon: androidx.compose.ui.graphics.vector.ImageVector
 )
 @Composable
-fun MainScreen() {
+fun MainScreen(initialDeepLink: ChatDeepLink? = null) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val context = LocalContext.current
-
+    // ← جدید: وقتی از نوتیف باز شده، یه بار مستقیم به چت مربوطه برو
+    LaunchedEffect(initialDeepLink) {
+        val link = initialDeepLink ?: return@LaunchedEffect
+        navController.navigate(
+            "chat/${link.conversationId}/${link.partnerUid}/${Uri.encode(link.partnerName)}"
+        )
+    }
     val bottomNavItems = listOf(
         BottomNavItem("FitFlow", Routes.FITFLOW, Icons.Default.Favorite),
         BottomNavItem("Balance", Routes.BALANCE, Icons.Default.Star),

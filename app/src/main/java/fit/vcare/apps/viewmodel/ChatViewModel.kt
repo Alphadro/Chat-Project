@@ -1,23 +1,30 @@
 package fit.vcare.apps.viewmodel
 import org.json.JSONArray
 import android.app.Application
+import android.app.DownloadManager
+import android.content.ContentValues
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewModelScope
+import fit.vcare.apps.ChatScreenTracker
 import fit.vcare.apps.data.audio.AudioPlayerManager
 import fit.vcare.apps.data.audio.AudioRecorder
 import fit.vcare.apps.data.audio.RecordedAudio
 import fit.vcare.apps.data.local.ChatAppearancePrefs
-import fit.vcare.apps.data.mapper.toJson
-import fit.vcare.apps.data.mapper.toMessage
 import fit.vcare.apps.data.remote.MediaRepositoryImpl
+import fit.vcare.apps.data.remote.ServerTimeSync
 import fit.vcare.apps.data.repository.ChatRepositoryImpl
-import fit.vcare.apps.data.repository.LocalDataCache
 import fit.vcare.apps.data.repository.PartnerRepositoryImpl
 import fit.vcare.apps.data.repository.getMyUidOrEmpty
 import fit.vcare.apps.domain.model.ChatThemePresets
@@ -26,6 +33,10 @@ import fit.vcare.apps.domain.model.MessageStatus
 import fit.vcare.apps.domain.model.MessageType
 import fit.vcare.apps.domain.model.PartnerPresence
 import fit.vcare.apps.domain.model.ProposalStatus
+import fit.vcare.apps.domain.model.Relationship
+import fit.vcare.apps.domain.model.RelationshipStatus
+import fit.vcare.apps.domain.model.ReplyInfo
+import fit.vcare.apps.fcm.ChatNotificationPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -38,9 +49,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.util.UUID
-
-private const val MAX_RECORDING_DURATION_MS = 60_000L
-
+private const val MAX_FILE_SIZE_BYTES = 25L * 1024 * 1024
+private const val MAX_RECORDING_DURATION_MS = 120_000L
+private const val MIN_RECORDING_DURATION_MS = 700L
+private const val MAX_MESSAGE_CHARS = 1000
 data class ChatUiState(
     val isLoading: Boolean = false,
     val messages: List<Message> = emptyList(),
@@ -67,13 +79,34 @@ data class ChatUiState(
     val isClearingHistory: Boolean = false,
     val isDeletingChat: Boolean = false,
     val chatDeleted: Boolean = false,
+    val isLoadingOlderMessages: Boolean = false,
+    val hasMoreOlderMessages: Boolean = true,
+    val relationship: Relationship? = null,
+    val isMuted: Boolean = false,
+    val isUploadingFile: Boolean = false,
+    val pendingFile: PendingFileAttachment? = null,
+    val replyingToMessage: Message? = null,
+    val isUploadingVideo: Boolean = false,
+    val pendingVideo: PendingVideoAttachment? = null,
 )
-
+data class PendingVideoAttachment(
+    val uri: Uri,
+    val mimeType: String,
+    val fileSize: Long,
+    val durationMs: Long
+)
+data class PendingFileAttachment(
+    val uri: Uri,
+    val fileName: String,
+    val fileSize: Long,
+    val mimeType: String
+)
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val context = application.applicationContext
     private var conversationId: String? = null
     private var isChatScreenActive = false
+    private  val MAX_VIDEO_SIZE_BYTES = 100L * 1024 * 1024 // 100MB - Assumption
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState
@@ -110,23 +143,189 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     init {
         ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
     }
-    private fun cacheKeyFor(conversationId: String) = "messages_$conversationId"
+    fun downloadFile(url: String, fileName: String) {
+        try {
+            val request = DownloadManager.Request(Uri.parse(url))
+                .setTitle(fileName)
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(true)
+            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            dm.enqueue(request)
+            Toast.makeText(context, "دانلود شروع شد", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(context, "دانلود ناموفق بود", Toast.LENGTH_SHORT).show()
+        }
+    }
 
-    private fun loadCachedMessages(conversationId: String): List<Message> {
-        val json = LocalDataCache.getString(context, cacheKeyFor(conversationId)) ?: return emptyList()
-        return runCatching {
-            val arr = JSONArray(json)
-            (0 until arr.length()).map { i ->
-                arr.getJSONObject(i).toMessage(fallbackId = "", conversationId = conversationId)
+    fun saveImageToGallery(url: String) {
+        viewModelScope.launch {
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { java.net.URL(url).openStream().use { it.readBytes() } }.getOrNull()
             }
-        }.getOrDefault(emptyList())
+            if (bytes == null) {
+                Toast.makeText(context, "دانلود عکس ناموفق بود", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            val saved = withContext(Dispatchers.IO) {
+                runCatching {
+                    val resolver = context.contentResolver
+                    val fileName = "VCare_${System.currentTimeMillis()}.jpg"
+                    val values = ContentValues().apply {
+                        put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                        put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/VCare")
+                            put(MediaStore.Images.Media.IS_PENDING, 1)
+                        }
+                    }
+                    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                        ?: return@runCatching false
+                    resolver.openOutputStream(uri)?.use { it.write(bytes) }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        values.clear()
+                        values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                        resolver.update(uri, values, null, null)
+                    }
+                    true
+                }.getOrDefault(false)
+            }
+
+            Toast.makeText(
+                context,
+                if (saved) "عکس در گالری ذخیره شد" else "ذخیره عکس ناموفق بود",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+    fun startReply(message: Message) {
+        if (message.status == MessageStatus.PENDING) return
+        _uiState.value = _uiState.value.copy(replyingToMessage = message, editingMessageId = null)
     }
 
-    private fun saveCachedMessages(conversationId: String, messages: List<Message>) {
-        val arr = JSONArray()
-        messages.forEach { arr.put(it.toJson()) }
-        LocalDataCache.putString(context, cacheKeyFor(conversationId), arr.toString())
+    fun cancelReply() {
+        _uiState.value = _uiState.value.copy(replyingToMessage = null)
     }
+
+    private fun replyPreviewTextFor(message: Message): String = when (message.type) {
+        MessageType.IMAGE -> if (message.text.isNotBlank()) message.text else "📷 عکس"
+        MessageType.AUDIO -> "🎤 پیام صوتی"
+        MessageType.FILE -> message.fileName ?: "📎 فایل"
+        MessageType.WALLPAPER_PROPOSAL -> "🖼️ پیشنهاد پس‌زمینه"
+        else -> message.text
+    }
+
+    private fun buildReplyInfo(): ReplyInfo? {
+        val msg = _uiState.value.replyingToMessage ?: return null
+        return ReplyInfo(msg.messageId, msg.senderId, replyPreviewTextFor(msg), msg.type)
+    }
+    fun onFilePicked(uri: Uri) {
+        val (name, size) = queryFileMeta(context, uri)
+        val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+
+        if (size > MAX_FILE_SIZE_BYTES) {
+            _uiState.value = _uiState.value.copy(error = "حجم فایل بیشتر از حد مجاز است")
+            return
+        }
+
+        _uiState.value = _uiState.value.copy(
+            pendingFile = PendingFileAttachment(uri, name, size, mimeType)
+        )
+    }
+
+    fun cancelPendingFile() {
+        _uiState.value = _uiState.value.copy(pendingFile = null)
+    }
+
+    /** ارسال نهایی فایل انتخاب‌شده به همراه کپشن اختیاری */
+    fun sendPendingFile(caption: String = "") {
+        val pending = _uiState.value.pendingFile ?: return
+        val convId = conversationId ?: return
+        val myUid = getMyUidOrEmpty(context)
+
+        _uiState.value = _uiState.value.copy(pendingFile = null)
+
+        val tempId = UUID.randomUUID().toString()
+        val now = ServerTimeSync.now()
+        val trimmedCaption = caption.trim()
+
+        val pendingMsg = Message(
+            messageId = tempId,
+            conversationId = convId,
+            senderId = myUid,
+            text = trimmedCaption,
+            type = MessageType.FILE,
+            mediaUrl = pending.uri.toString(),   // پیش‌نمایش موقت محلی
+            createdAt = now,
+            status = MessageStatus.PENDING,
+            mimeType = pending.mimeType,
+            fileSize = pending.fileSize,
+            fileName = pending.fileName
+        )
+        _pendingMessages.value = _pendingMessages.value + pendingMsg
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isUploadingFile = true, error = null)
+
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.openInputStream(pending.uri)?.use { it.readBytes() } }.getOrNull()
+            }
+            if (bytes == null) {
+                _uiState.value = _uiState.value.copy(isUploadingFile = false, error = "خواندن فایل ناموفق بود")
+                _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
+                return@launch
+            }
+
+            MediaRepositoryImpl.uploadFile(context, bytes, pending.fileName, pending.mimeType)
+                .onSuccess { url ->
+                    ChatRepositoryImpl.sendFileMessage(
+                        context = context, conversationId = convId, senderId = myUid,
+                        mediaUrl = url, fileName = pending.fileName, fileSize = pending.fileSize,
+                        mimeType = pending.mimeType, caption = trimmedCaption, messageId = tempId
+                    ).onSuccess {
+                        _uiState.value = _uiState.value.copy(isUploadingFile = false)
+                        _pendingMessages.value = _pendingMessages.value.map {
+                            if (it.messageId == tempId) it.copy(status = MessageStatus.SENT, mediaUrl = url) else it
+                        }
+                    }.onFailure { e ->
+                        _uiState.value = _uiState.value.copy(isUploadingFile = false, error = e.message ?: "ارسال فایل ناموفق بود")
+                        _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
+                    }
+                }
+                .onFailure { e ->
+                    _uiState.value = _uiState.value.copy(isUploadingFile = false, error = e.message ?: "آپلود فایل ناموفق بود")
+                    _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
+                }
+        }
+    }
+
+    private fun queryFileMeta(context: Context, uri: Uri): Pair<String, Long> {
+        var name = "file"
+        var size = 0L
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            val sizeIndex = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+            if (cursor.moveToFirst()) {
+                if (nameIndex >= 0) cursor.getString(nameIndex)?.let { name = it }
+                if (sizeIndex >= 0) size = cursor.getLong(sizeIndex)
+            }
+        }
+        return name to size
+    }
+    fun loadOlderMessages() {
+        val convId = conversationId ?: return
+        if (_uiState.value.isLoadingOlderMessages || !_uiState.value.hasMoreOlderMessages) return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoadingOlderMessages = true)
+            val hasMore = ChatRepositoryImpl.loadOlderMessages(context, convId).getOrDefault(false)
+            _uiState.value = _uiState.value.copy(isLoadingOlderMessages = false, hasMoreOlderMessages = hasMore)
+        }
+    }
+
+
     fun startObserving(conversationId: String, partnerUid: String, partnerName: String) {
         this.conversationId = conversationId
         this.isChatScreenActive = true
@@ -134,9 +333,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         lastWrittenReadAt = 0L
         _pendingMessages.value = emptyList()
 
-        // کش محلی پیام‌های این چت رو فوری بخون و نشون بده
-        val cachedMessages = loadCachedMessages(conversationId)
-        _serverMessages.value = cachedMessages
+        viewModelScope.launch { ServerTimeSync.ensureSynced(context) } // ← جدید
+
+
 
         val savedBackground = ChatAppearancePrefs.getEffectiveBackgroundUri(context, conversationId)
         val savedTheme = ChatAppearancePrefs.getEffectiveThemeKey(context, conversationId)
@@ -145,10 +344,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             partnerName = partnerName,
             partnerUid = partnerUid,
             currentUid = myUid,
-            isLoading = cachedMessages.isEmpty(), // اگه کش داشتیم دیگه اسپینر نشون نده
-            messages = cachedMessages,
+            isLoading = false,
+            messages = emptyList(),
             backgroundUri = savedBackground,
-            themeKey = savedTheme
+            themeKey = savedTheme,
+                    isMuted = ChatNotificationPrefs.isMuted(context, conversationId)
+
         )
         viewModelScope.launch {
             PartnerRepositoryImpl.getUserBasicInfo(context, partnerUid)
@@ -156,14 +357,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(partnerPhotoUrl = info.photoUrl)
                 }
         }
-        val messagesFlow = ChatRepositoryImpl.observeMessages(viewModelScope, context, conversationId, 3000L)
+        val messagesFlow = ChatRepositoryImpl.observeMessages(viewModelScope, context, conversationId, myUid, 3000L)
         viewModelScope.launch {
             messagesFlow.collectLatest { serverMsgs ->
-                if (serverMsgs.isNotEmpty() || cachedMessages.isEmpty()) {
+                if (serverMsgs.isNotEmpty() ) {
                     // فقط وقتی سرور چیزی برگردوند (یا از اول کشی نبود) وضعیت رو با نتیجه‌ی سرور جایگزین کن،
                     // تا یک پاسخ خالی موقت آفلاین، کش موجود رو پاک نکنه
                     _serverMessages.value = serverMsgs
-                    saveCachedMessages(conversationId, serverMsgs)
                 }
                 val serverIds = serverMsgs.map { it.messageId }.toSet()
                 _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId in serverIds }
@@ -172,6 +372,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 if (latest > lastWrittenReadAt) {
                     lastWrittenReadAt = latest
                     ChatRepositoryImpl.updateLastRead(context, conversationId, myUid, latest)
+                    ChatRepositoryImpl.resetUnreadCount(context, conversationId, myUid) // ← جدید
                 }
             }
         }
@@ -190,7 +391,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = _uiState.value.copy(partnerPresence = presence)
             }
         }
-
+        val relationshipFlow = PartnerRepositoryImpl.observeRelationshipStatus(viewModelScope, context, conversationId, 5000L)
+        viewModelScope.launch {
+            relationshipFlow.collectLatest { relationship ->
+                _uiState.value = _uiState.value.copy(relationship = relationship)
+            }}
         val typingFlow = ChatRepositoryImpl.observePartnerTyping(viewModelScope, context, conversationId, partnerUid, 2000L)
         viewModelScope.launch {
             typingFlow.collectLatest { isTyping ->
@@ -211,6 +416,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun stopObserving() {
         val convId = conversationId
         if (convId != null) {
+            ChatScreenTracker.onChatClosed(convId)
             ChatRepositoryImpl.stopObservingMessages(convId)
             ChatRepositoryImpl.stopObservingTyping(convId)
             ChatRepositoryImpl.stopObservingPartnerReadState(convId)
@@ -218,6 +424,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val partnerUid = _uiState.value.partnerUid
         if (partnerUid.isNotBlank()) {
             PartnerRepositoryImpl.stopObservingPresence(partnerUid)
+            if (convId != null) {
+                PartnerRepositoryImpl.stopObservingRelationshipStatus(convId)
+            }
         }
         isChatScreenActive = false
         pausePresence()
@@ -262,20 +471,79 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+
     fun sendMessage(text: String) {
         val convId = conversationId ?: return
         if (text.isBlank()) return
-        val myUid = getMyUidOrEmpty(context)
+        clearTypingState()
+        val chunks = splitMessageIntoChunks(text.trim(), MAX_MESSAGE_CHARS)
+        val replyInfo = buildReplyInfo()
+        _uiState.value = _uiState.value.copy(replyingToMessage = null)
 
+        viewModelScope.launch {
+            chunks.forEachIndexed { index, chunk ->
+                sendSingleMessageAwait(convId, chunk, replyTo = if (index == 0) replyInfo else null)
+            }
+        }
+    }
+
+    private suspend fun sendSingleMessageAwait(convId: String, text: String, replyTo: ReplyInfo? = null) {
+        val myUid = getMyUidOrEmpty(context)
+        val tempId = UUID.randomUUID().toString()
+        val now = ServerTimeSync.now()
+        val pendingMsg = Message(
+            messageId = tempId, conversationId = convId, senderId = myUid,
+            text = text, type = MessageType.TEXT, mediaUrl = null,
+            createdAt = now, status = MessageStatus.PENDING,
+            replyToMessageId = replyTo?.messageId, replyToSenderId = replyTo?.senderId,
+            replyToText = replyTo?.text, replyToType = replyTo?.type
+        )
+        _pendingMessages.value = _pendingMessages.value + pendingMsg
+        _uiState.value = _uiState.value.copy(isSending = true, error = null)
+
+        ChatRepositoryImpl.sendMessage(context, convId, myUid, text, messageId = tempId, replyTo = replyTo)
+            .onSuccess {
+                _pendingMessages.value = _pendingMessages.value.map {
+                    if (it.messageId == tempId) it.copy(status = MessageStatus.SENT) else it
+                }
+            }
+            .onFailure { e ->
+                _uiState.value = _uiState.value.copy(error = e.message ?: "ارسال ناموفق بود")
+                _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
+            }
+        _uiState.value = _uiState.value.copy(isSending = false)
+    }
+
+    /** متن طولانی رو مثل تلگرام به چند پیام جدا تقسیم می‌کنه — ترجیحاً سر مرز فاصله/خط جدید می‌بره تا کلمه قطع نشه */
+    private fun splitMessageIntoChunks(text: String, maxChars: Int): List<String> {
+        if (text.length <= maxChars) return listOf(text)
+
+        val chunks = mutableListOf<String>()
+        var remaining = text
+        while (remaining.length > maxChars) {
+            var splitIndex = remaining.lastIndexOf(' ', maxChars)
+            if (splitIndex <= 0) splitIndex = remaining.lastIndexOf('\n', maxChars)
+            if (splitIndex <= 0) splitIndex = maxChars // اگه هیچ مرز مناسبی نبود، مجبوریم وسط کلمه ببریم
+
+            chunks.add(remaining.substring(0, splitIndex).trimEnd())
+            remaining = remaining.substring(splitIndex).trimStart()
+        }
+        if (remaining.isNotBlank()) chunks.add(remaining)
+        return chunks
+    }
+
+    /** همون منطق قبلیِ sendMessage، فقط حالا برای یک تکه‌ی از پیش بریده‌شده */
+    private fun sendSingleMessage(convId: String, text: String) {
+        val myUid = getMyUidOrEmpty(context)
         clearTypingState()
 
         val tempId = UUID.randomUUID().toString()
-        val now = System.currentTimeMillis()
+        val now = ServerTimeSync.now()
         val pendingMsg = Message(
             messageId = tempId,
             conversationId = convId,
             senderId = myUid,
-            text = text.trim(),
+            text = text,
             type = MessageType.TEXT,
             mediaUrl = null,
             createdAt = now,
@@ -306,7 +574,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         clearTypingState()
 
         val tempId = UUID.randomUUID().toString()
-        val now = System.currentTimeMillis()
+        val now = ServerTimeSync.now()
         val pendingMsg = Message(
             messageId = tempId,
             conversationId = convId,
@@ -400,6 +668,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         recordingTimerJob?.cancel()
         recordingTimerJob = null
 
+        val elapsedMs = _uiState.value.recordingDurationMs
         val recorded = audioRecorder.stop()
         _uiState.value = _uiState.value.copy(isRecording = false, recordingDurationMs = 0L)
 
@@ -407,15 +676,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(recordingError = "ضبط صدا خیلی کوتاه بود یا ناموفق بود")
             return
         }
-
-        val convId = conversationId ?: run {
+        if (elapsedMs < MIN_RECORDING_DURATION_MS) {
             recorded.file.delete()
+            _uiState.value = _uiState.value.copy(recordingError = "ضبط خیلی کوتاه بود، کمی بیشتر نگه دارید")
             return
         }
+
+        val convId = conversationId ?: run { recorded.file.delete(); return }
         val myUid = getMyUidOrEmpty(context)
 
+        // ← اینجا مهمه: بگیر و فوراً پاک کن
+        val replyInfo = buildReplyInfo()
+        _uiState.value = _uiState.value.copy(replyingToMessage = null)
+
         val tempId = UUID.randomUUID().toString()
-        val now = System.currentTimeMillis()
+        val now = ServerTimeSync.now()
         val fileSize = recorded.file.length()
 
         val pendingMsg = Message(
@@ -424,46 +699,42 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             senderId = myUid,
             text = "",
             type = MessageType.AUDIO,
-            mediaUrl = recorded.file.absolutePath, // پیش‌نمایش محلی موقت تا قبل از تأیید سرور
+            mediaUrl = recorded.file.absolutePath,
             createdAt = now,
             status = MessageStatus.PENDING,
             durationMs = recorded.durationMs,
             mimeType = recorded.mimeType,
-            fileSize = fileSize
+            fileSize = fileSize,
+            replyToMessageId = replyInfo?.messageId,
+            replyToSenderId = replyInfo?.senderId,
+            replyToText = replyInfo?.text,
+            replyToType = replyInfo?.type
         )
         _pendingMessages.value = _pendingMessages.value + pendingMsg
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isUploadingAudio = true, error = null)
-
             val bytes = withContext(Dispatchers.IO) {
                 runCatching { recorded.file.readBytes() }.getOrNull()
             }
-
             if (bytes == null) {
                 _uiState.value = _uiState.value.copy(isUploadingAudio = false, error = "خواندن فایل صوتی ناموفق بود")
                 _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
                 recorded.file.delete()
                 return@launch
             }
-
             MediaRepositoryImpl.uploadAudio(context, bytes, recorded.mimeType)
                 .onSuccess { url ->
                     ChatRepositoryImpl.sendAudioMessage(
-                        context = context,
-                        conversationId = convId,
-                        senderId = myUid,
-                        mediaUrl = url,
-                        durationMs = recorded.durationMs,
-                        mimeType = recorded.mimeType,
-                        fileSize = fileSize,
-                        messageId = tempId
+                        context = context, conversationId = convId, senderId = myUid,
+                        mediaUrl = url, durationMs = recorded.durationMs, mimeType = recorded.mimeType,
+                        fileSize = fileSize, messageId = tempId, replyTo = replyInfo   // ← اینجا هم پاس بده
                     ).onSuccess {
                         _uiState.value = _uiState.value.copy(isUploadingAudio = false)
                         _pendingMessages.value = _pendingMessages.value.map {
                             if (it.messageId == tempId) it.copy(status = MessageStatus.SENT, mediaUrl = url) else it
                         }
-                        recorded.file.delete() // فایل موقت بعد از آپلود موفق حذف شود
+                        recorded.file.delete()
                     }.onFailure { e ->
                         _uiState.value = _uiState.value.copy(isUploadingAudio = false, error = e.message ?: "ارسال پیام صوتی ناموفق بود")
                         _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
@@ -486,6 +757,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         recordingTimerJob?.cancel()
         recordingTimerJob = null
 
+        val elapsedMs = _uiState.value.recordingDurationMs   // ← جدید
         val recorded = audioRecorder.stop()
         _uiState.value = _uiState.value.copy(isRecording = false, recordingDurationMs = 0L)
 
@@ -493,6 +765,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(recordingError = "ضبط صدا خیلی کوتاه بود یا ناموفق بود")
             return
         }
+
+        if (elapsedMs < MIN_RECORDING_DURATION_MS) {           // ← جدید
+            recorded.file.delete()
+            _uiState.value = _uiState.value.copy(recordingError = "ضبط خیلی کوتاه بود، کمی بیشتر نگه دارید")
+            return
+        }
+
         _uiState.value = _uiState.value.copy(pendingRecordedAudio = recorded)
     }
 
@@ -507,10 +786,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val convId = conversationId ?: run { recorded.file.delete(); return }
         val myUid = getMyUidOrEmpty(context)
 
-        _uiState.value = _uiState.value.copy(pendingRecordedAudio = null)
+        // ← اضافه شد: بگیر و فوراً پاک کن
+        val replyInfo = buildReplyInfo()
+        _uiState.value = _uiState.value.copy(pendingRecordedAudio = null, replyingToMessage = null)
 
         val tempId = UUID.randomUUID().toString()
-        val now = System.currentTimeMillis()
+        val now = ServerTimeSync.now()
         val fileSize = recorded.file.length()
         val trimmedCaption = caption.trim()
 
@@ -525,7 +806,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             status = MessageStatus.PENDING,
             durationMs = recorded.durationMs,
             mimeType = recorded.mimeType,
-            fileSize = fileSize
+            fileSize = fileSize,
+            // ← اضافه شد
+            replyToMessageId = replyInfo?.messageId,
+            replyToSenderId = replyInfo?.senderId,
+            replyToText = replyInfo?.text,
+            replyToType = replyInfo?.type
         )
         _pendingMessages.value = _pendingMessages.value + pendingMsg
 
@@ -547,7 +833,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     ChatRepositoryImpl.sendAudioMessage(
                         context = context, conversationId = convId, senderId = myUid,
                         mediaUrl = url, durationMs = recorded.durationMs, mimeType = recorded.mimeType,
-                        fileSize = fileSize, caption = trimmedCaption, messageId = tempId
+                        fileSize = fileSize, caption = trimmedCaption, messageId = tempId,
+                        replyTo = replyInfo   // ← اضافه شد
                     ).onSuccess {
                         _uiState.value = _uiState.value.copy(isUploadingAudio = false)
                         _pendingMessages.value = _pendingMessages.value.map {
@@ -590,7 +877,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startEditingMessage(message: Message) {
         if (message.status == MessageStatus.PENDING) return
-        _uiState.value = _uiState.value.copy(editingMessageId = message.messageId)
+        _uiState.value = _uiState.value.copy(editingMessageId = message.messageId, replyingToMessage = null)
     }
 
     fun cancelEditing() {
@@ -632,7 +919,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 .onSuccess {
                     _pendingMessages.value = emptyList()
                     _serverMessages.value = emptyList()
-                    saveCachedMessages(convId, emptyList())
                     _uiState.value = _uiState.value.copy(isClearingHistory = false, messages = emptyList())
                 }
                 .onFailure { e ->
@@ -703,7 +989,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val parsedUri = Uri.parse(uri)
 
         val tempId = UUID.randomUUID().toString()
-        val now = System.currentTimeMillis()
+        val now = ServerTimeSync.now()
         val pendingMsg = Message(
             messageId = tempId,
             conversationId = convId,
@@ -780,17 +1066,45 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun compressImage(uri: Uri): ByteArray {
-        val input = context.contentResolver.openInputStream(uri)
+        val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        val boundsStream = context.contentResolver.openInputStream(uri)
             ?: throw IllegalStateException("فایل قابل خواندن نیست")
+        boundsStream.use { input -> BitmapFactory.decodeStream(input, null, boundsOptions) }
 
-        val original = input.use { BitmapFactory.decodeStream(it) }
-            ?: throw IllegalStateException("فرمت تصویر پشتیبانی نمی‌شود")
+        val actualWidth = boundsOptions.outWidth
+        val actualHeight = boundsOptions.outHeight
+        if (actualWidth <= 0 || actualHeight <= 0) {
+            throw IllegalStateException("فرمت تصویر پشتیبانی نمی‌شود")
+        }
 
-        val scaled = scaleDown(original, maxImageDimensionPx)
+        val sampleSize = calculateInSampleSize(actualWidth, actualHeight, maxImageDimensionPx)
 
+        val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        val decodeStream = context.contentResolver.openInputStream(uri)
+            ?: throw IllegalStateException("فایل قابل خواندن نیست")
+        val sampled = decodeStream.use { input -> BitmapFactory.decodeStream(input, null, decodeOptions) }
+            ?: throw IllegalStateException("خواندن تصویر ناموفق بود")
+
+        val finalBitmap = scaleDown(sampled, maxImageDimensionPx)
         val output = ByteArrayOutputStream()
-        scaled.compress(Bitmap.CompressFormat.JPEG, jpegQuality, output)
+        finalBitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, output)
+
+        if (finalBitmap !== sampled) sampled.recycle()
+        finalBitmap.recycle()
         return output.toByteArray()
+    }
+
+    private fun calculateInSampleSize(width: Int, height: Int, targetMaxDimension: Int): Int {
+        var sampleSize = 1
+        var currentWidth = width
+        var currentHeight = height
+        // تا وقتی هر دو بعد حداقل ۲ برابر بزرگ‌تر از هدف هستن، sampleSize رو دو برابر کن
+        while (currentWidth / 2 >= targetMaxDimension || currentHeight / 2 >= targetMaxDimension) {
+            currentWidth /= 2
+            currentHeight /= 2
+            sampleSize *= 2
+        }
+        return sampleSize
     }
 
     private fun scaleDown(bitmap: Bitmap, maxDimension: Int): Bitmap {
@@ -815,5 +1129,166 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
         audioRecorder.release()
         stopObserving()
+    }
+    fun blockPartner() {
+        val convId = conversationId ?: return
+        val myUid = getMyUidOrEmpty(context)
+        viewModelScope.launch {
+            PartnerRepositoryImpl.updateRelationshipStatus(context, convId, RelationshipStatus.BLOCKED, blockedBy = myUid)
+                .onFailure { e -> _uiState.value = _uiState.value.copy(error = e.message ?: "مسدود کردن ناموفق بود") }
+        }
+    }
+
+    fun unblockPartner() {
+        val convId = conversationId ?: return
+        viewModelScope.launch {
+            PartnerRepositoryImpl.updateRelationshipStatus(context, convId, RelationshipStatus.ACTIVE, blockedBy = null)
+                .onFailure { e -> _uiState.value = _uiState.value.copy(error = e.message ?: "لغو مسدودیت ناموفق بود") }
+        }
+    }
+
+//    fun unmatchPartner(onDone: () -> Unit) {
+//        val convId = conversationId ?: return
+//        viewModelScope.launch {
+//            PartnerRepositoryImpl.updateRelationshipStatus(context, convId, RelationshipStatus.ENDED)
+//                .onSuccess { onDone() }
+//                .onFailure { e -> _uiState.value = _uiState.value.copy(error = e.message ?: "پایان رابطه ناموفق بود") }
+//        }
+//    }
+//
+//    fun reportPartner(reason: String, onDone: () -> Unit) {
+//        val convId = conversationId ?: return
+//        val partnerUid = _uiState.value.partnerUid
+//        viewModelScope.launch {
+//            PartnerRepositoryImpl.reportPartner(context, convId, partnerUid, reason.trim())
+//                .onSuccess { onDone() }
+//                .onFailure { e -> _uiState.value = _uiState.value.copy(error = e.message ?: "ارسال گزارش ناموفق بود") }
+//        }
+//    }
+
+    fun toggleMute() {
+        val convId = conversationId ?: return
+        val newValue = !_uiState.value.isMuted
+        ChatNotificationPrefs.setMuted(context, convId, newValue)
+        _uiState.value = _uiState.value.copy(isMuted = newValue)
+    }
+
+    fun unmatchPartner(onDone: () -> Unit) {
+        val convId = conversationId ?: return
+        viewModelScope.launch {
+            PartnerRepositoryImpl.updateRelationshipStatus(context, convId, RelationshipStatus.ENDED)
+                .onSuccess { onDone() }
+                .onFailure { e -> _uiState.value = _uiState.value.copy(error = e.message ?: "پایان رابطه ناموفق بود") }
+        }
+    }
+
+    fun reportPartner(reason: String, onDone: () -> Unit) {
+        val convId = conversationId ?: return
+        val partnerUid = _uiState.value.partnerUid
+        viewModelScope.launch {
+            PartnerRepositoryImpl.reportPartner(context, convId, partnerUid, reason.trim())
+                .onSuccess { onDone() }
+                .onFailure { e -> _uiState.value = _uiState.value.copy(error = e.message ?: "ارسال گزارش ناموفق بود") }
+        }
+    }
+    fun toggleReaction(message: Message, emoji: String) {
+        val convId = conversationId ?: return
+        if (message.status == MessageStatus.PENDING) return
+        val myUid = getMyUidOrEmpty(context)
+        viewModelScope.launch {
+            ChatRepositoryImpl.toggleMessageReaction(context, convId, message.messageId, myUid, emoji)
+                .onFailure { e -> _uiState.value = _uiState.value.copy(error = e.message ?: "ثبت ری‌اکشن ناموفق بود") }
+        }
+    }
+    fun onVideoPicked(uri: Uri) {
+        val (name, size) = queryFileMeta(context, uri)
+        val mimeType = context.contentResolver.getType(uri) ?: "video/mp4"
+
+        if (size > MAX_VIDEO_SIZE_BYTES) {
+            _uiState.value = _uiState.value.copy(error = "حجم ویدیو بیشتر از حد مجاز است")
+            return
+        }
+
+        val durationMs = runCatching {
+            MediaMetadataRetriever().use { retriever ->
+                retriever.setDataSource(context, uri)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            }
+        }.getOrDefault(0L)
+
+        _uiState.value = _uiState.value.copy(
+            pendingVideo = PendingVideoAttachment(uri, mimeType, size, durationMs)
+        )
+    }
+
+    fun cancelPendingVideo() {
+        _uiState.value = _uiState.value.copy(pendingVideo = null)
+    }
+
+    fun sendPendingVideo(caption: String = "") {
+        val pending = _uiState.value.pendingVideo ?: return
+        val convId = conversationId ?: return
+        val myUid = getMyUidOrEmpty(context)
+
+        val replyInfo = buildReplyInfo()
+        _uiState.value = _uiState.value.copy(pendingVideo = null, replyingToMessage = null)
+
+        val tempId = UUID.randomUUID().toString()
+        val now = ServerTimeSync.now()
+        val trimmedCaption = caption.trim()
+
+        val pendingMsg = Message(
+            messageId = tempId,
+            conversationId = convId,
+            senderId = myUid,
+            text = trimmedCaption,
+            type = MessageType.VIDEO,
+            mediaUrl = pending.uri.toString(),
+            createdAt = now,
+            status = MessageStatus.PENDING,
+            durationMs = pending.durationMs,
+            mimeType = pending.mimeType,
+            fileSize = pending.fileSize,
+            replyToMessageId = replyInfo?.messageId,
+            replyToSenderId = replyInfo?.senderId,
+            replyToText = replyInfo?.text,
+            replyToType = replyInfo?.type
+        )
+        _pendingMessages.value = _pendingMessages.value + pendingMsg
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isUploadingVideo = true, error = null)
+
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.openInputStream(pending.uri)?.use { it.readBytes() } }.getOrNull()
+            }
+            if (bytes == null) {
+                _uiState.value = _uiState.value.copy(isUploadingVideo = false, error = "خواندن ویدیو ناموفق بود")
+                _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
+                return@launch
+            }
+
+            MediaRepositoryImpl.uploadVideo(context, bytes, pending.mimeType)
+                .onSuccess { url ->
+                    ChatRepositoryImpl.sendVideoMessage(
+                        context = context, conversationId = convId, senderId = myUid,
+                        mediaUrl = url, durationMs = pending.durationMs, mimeType = pending.mimeType,
+                        fileSize = pending.fileSize, caption = trimmedCaption, messageId = tempId,
+                        replyTo = replyInfo
+                    ).onSuccess {
+                        _uiState.value = _uiState.value.copy(isUploadingVideo = false)
+                        _pendingMessages.value = _pendingMessages.value.map {
+                            if (it.messageId == tempId) it.copy(status = MessageStatus.SENT, mediaUrl = url) else it
+                        }
+                    }.onFailure { e ->
+                        _uiState.value = _uiState.value.copy(isUploadingVideo = false, error = e.message ?: "ارسال ویدیو ناموفق بود")
+                        _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
+                    }
+                }
+                .onFailure { e ->
+                    _uiState.value = _uiState.value.copy(isUploadingVideo = false, error = e.message ?: "آپلود ویدیو ناموفق بود")
+                    _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
+                }
+        }
     }
 }

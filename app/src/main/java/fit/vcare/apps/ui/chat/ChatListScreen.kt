@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -25,7 +26,7 @@ import fit.vcare.apps.viewmodel.ChatListViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
+//ChatListScreen.kt
 private val listTimeFormatter = SimpleDateFormat("HH:mm", Locale.getDefault())
 
 private fun formatListTime(millis: Long?): String {
@@ -113,18 +114,38 @@ fun ChatListScreen(
                             Text(
                                 text = item.lastMessage ?: "شروع مکالمه",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1
+                                maxLines = 1,
+                                fontWeight = if (item.unreadCount > 0) FontWeight.SemiBold else FontWeight.Normal
                             )
                         }
 
-                        val timeText = formatListTime(item.lastMessageAt)
-                        if (timeText.isNotBlank()) {
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = timeText,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        Column(horizontalAlignment = Alignment.End) {
+                            val timeText = formatListTime(item.lastMessageAt)
+                            if (timeText.isNotBlank()) {
+                                Text(
+                                    text = timeText,
+                                    fontSize = 12.sp,
+                                    color = if (item.unreadCount > 0) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (item.unreadCount > 0) {
+                                Spacer(Modifier.height(4.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .defaultMinSize(minWidth = 20.dp, minHeight = 20.dp)
+                                        .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (item.unreadCount > 99) "99+" else item.unreadCount.toString(),
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
                     Divider()

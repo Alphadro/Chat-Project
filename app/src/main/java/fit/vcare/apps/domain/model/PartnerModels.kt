@@ -22,6 +22,8 @@ data class Relationship(
     val status: RelationshipStatus,
     val createdAt: Long,
     val connectedAt: Long
+    ,
+    val blockedBy: String? = null
 ) {
     fun otherUid(myUid: String): String = if (userA == myUid) userB else userA
 }

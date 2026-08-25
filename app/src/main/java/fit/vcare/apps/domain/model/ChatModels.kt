@@ -11,7 +11,8 @@ data class Conversation(
     val createdAt: Long,
     val lastMessage: String? = null,
     val lastMessageAt: Long? = null,
-    val lastMessageSenderId: String? = null
+    val lastMessageSenderId: String? = null,
+    val unreadCounts: Map<String, Long> = emptyMap()
 )
 
 data class Message(
@@ -28,10 +29,22 @@ data class Message(
     val durationMs: Long? = null,
     val mimeType: String? = null,
     val fileSize: Long? = null,
+    val fileName: String? = null,
     // فقط برای MessageType.WALLPAPER_PROPOSAL — mediaUrl همون آدرس عکس پیشنهادیه
-    val proposalStatus: ProposalStatus? = null
+    val proposalStatus: ProposalStatus? = null,
+    val reactions: Map<String, String> = emptyMap(),
+    val replyToMessageId: String? = null,
+    val replyToSenderId: String? = null,
+    val replyToText: String? = null,
+    val replyToType: MessageType? = null,
 )
-
+/** برای پاس دادن اطلاعات پیامِ در حال ریپلای بین ViewModel و Repository */
+data class ReplyInfo(
+    val messageId: String,
+    val senderId: String,
+    val text: String,
+    val type: MessageType
+)
 data class ReadState(
     val uid: String,
     val lastReadAt: Long

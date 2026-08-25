@@ -21,17 +21,23 @@ import java.util.concurrent.TimeUnit
 interface MediaRepository {
     suspend fun uploadImage(context: Context, imageBytes: ByteArray): Result<String>
     suspend fun uploadAudio(context: Context, audioBytes: ByteArray, mimeType: String): Result<String>
+    suspend fun uploadVideo(context: Context, videoBytes: ByteArray, mimeType: String): Result<String>  // ← جدید
+    suspend fun uploadFile(context: Context, fileBytes: ByteArray, fileName: String, mimeType: String): Result<String>  // ← جدید
+
 }
 
 object MediaRepositoryImpl : MediaRepository {
 
     private const val UPLOAD_IMAGE_URL = "https://api.appeks.com/aifitness-firebase/api/chat/upload-image"
     private const val UPLOAD_AUDIO_URL = "https://api.appeks.com/aifitness-firebase/api/chat/upload-audio"
+    private const val UPLOAD_FILE_URL = "https://api.appeks.com/aifitness-firebase/api/chat/upload-file"
+    private const val UPLOAD_VIDEO_URL = "https://api.appeks.com/aifitness-firebase/api/chat/upload-video"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
+        .callTimeout(3, TimeUnit.MINUTES)
         .build()
 
     override suspend fun uploadImage(context: Context, imageBytes: ByteArray): Result<String> {
@@ -112,7 +118,39 @@ object MediaRepositoryImpl : MediaRepository {
                 Result.success(fileUrl)
             }
         } catch (e: Exception) {
+            Log.e("MediaUpload", "Upload Exception: ${e.javaClass.simpleName} - ${e.message}", e)
             Result.failure(e)
         }
+    }
+    override suspend fun uploadFile(
+        context: Context, fileBytes: ByteArray, fileName: String, mimeType: String
+    ): Result<String> {
+        return uploadFile(
+            context = context,
+            url = UPLOAD_FILE_URL,
+            fieldName = "file",
+            fileName = fileName,
+            bytes = fileBytes,
+            mimeType = mimeType,
+            responseUrlKey = "fileUrl"   // ← فرض بر این‌که بک‌اند همچین کلیدی برمی‌گردونه؛ اگه چیز دیگه‌ایه، اصلاح کن
+        )
+    }
+    override suspend fun uploadVideo(context: Context, videoBytes: ByteArray, mimeType: String): Result<String> {
+        val extension = when {
+            mimeType.contains("mp4") -> "mp4"
+            mimeType.contains("3gpp") -> "3gp"
+            mimeType.contains("webm") -> "webm"
+            else -> "mp4"
+        }
+        val fileName = "video_${System.currentTimeMillis()}.$extension"
+        return uploadFile(
+            context = context,
+            url = UPLOAD_VIDEO_URL,
+            fieldName = "video",
+            fileName = fileName,
+            bytes = videoBytes,
+            mimeType = mimeType,
+            responseUrlKey = "videoUrl"
+        )
     }
 }

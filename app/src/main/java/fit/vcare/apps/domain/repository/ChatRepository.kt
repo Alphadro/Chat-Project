@@ -4,6 +4,7 @@ import android.content.Context
 import fit.vcare.apps.domain.model.Conversation
 import fit.vcare.apps.domain.model.Message
 import fit.vcare.apps.domain.model.ProposalStatus
+import fit.vcare.apps.domain.model.ReplyInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 
@@ -21,7 +22,7 @@ interface ChatRepository {
         conversationId: String,
         senderId: String,
         text: String,
-        messageId: String? = null
+        messageId: String? = null, replyTo: ReplyInfo? = null
     ): Result<Message>
 
     suspend fun sendImageMessage(
@@ -30,7 +31,7 @@ interface ChatRepository {
         senderId: String,
         mediaUrl: String,
         caption: String = "",
-        messageId: String? = null
+        messageId: String? = null, replyTo: ReplyInfo? = null
     ): Result<Message>
 
     suspend fun sendAudioMessage(
@@ -42,7 +43,7 @@ interface ChatRepository {
         mimeType: String,
         fileSize: Long,
         caption: String = "",
-        messageId: String? = null
+        messageId: String? = null, replyTo: ReplyInfo? = null
     ): Result<Message>
 
     suspend fun editMessage(
@@ -64,6 +65,7 @@ interface ChatRepository {
         scope: CoroutineScope,
         context: Context,
         conversationId: String,
+        viewerUid: String,
         intervalMs: Long = 3000L
     ): StateFlow<List<Message>>
 
@@ -112,4 +114,47 @@ interface ChatRepository {
     suspend fun clearChatHistory(context: Context, conversationId: String): Result<Unit>
 
     suspend fun deleteChatForMe(context: Context, conversationId: String, myUid: String): Result<Unit>
+    // در ChatRepository (interface)
+    suspend fun resetUnreadCount(context: Context, conversationId: String, uid: String): Result<Unit>
+    suspend fun getRecentMessages(context: Context, conversationId: String, limit: Int): Result<List<Message>>
+
+    /** برای اینکه merge داخلی repository از همون کش محلی که ChatViewModel لود کرده شروع بشه، نه از خالی */
+    fun seedCachedMessages(conversationId: String, cachedMessages: List<Message>)
+    suspend fun getMessagesBefore(
+        context: Context, conversationId: String, beforeTimestamp: Long, limit: Int
+    ): Result<List<Message>>
+
+    /** بارگذاری صفحه‌ی قدیمی‌تر؛ خروجی یعنی «هنوز پیام قدیمی‌تر هست یا نه» */
+    suspend fun loadOlderMessages(context: Context, conversationId: String): Result<Boolean>
+    suspend fun toggleMessageReaction(
+        context: Context,
+        conversationId: String,
+        messageId: String,
+        uid: String,
+        emoji: String
+    ): Result<Unit>
+
+    suspend fun sendFileMessage(
+        context: Context,
+        conversationId: String,
+        senderId: String,
+        mediaUrl: String,
+        fileName: String,
+        fileSize: Long,
+        mimeType: String,
+        caption: String = "",
+        messageId: String? = null, replyTo: ReplyInfo? = null
+    ): Result<Message>
+    suspend fun sendVideoMessage(
+        context: Context,
+        conversationId: String,
+        senderId: String,
+        mediaUrl: String,
+        durationMs: Long,
+        mimeType: String,
+        fileSize: Long,
+        caption: String = "",
+        messageId: String? = null,
+        replyTo: ReplyInfo? = null
+    ): Result<Message>
 }

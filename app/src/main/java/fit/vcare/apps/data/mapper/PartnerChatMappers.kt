@@ -44,6 +44,8 @@ fun JSONObject.toRelationship(fallbackId: String): Relationship {
             .getOrDefault(RelationshipStatus.ACTIVE),
         createdAt = doc.optLong("createdAt"),
         connectedAt = doc.optLong("connectedAt")
+        ,
+        blockedBy = doc.optNullableString("blockedBy")
     )
 }
 
@@ -54,6 +56,7 @@ fun Relationship.toJson(): JSONObject = JSONObject().apply {
     put("status", status.name)
     put("createdAt", createdAt)
     put("connectedAt", connectedAt)
+    put("blockedBy", blockedBy ?: JSONObject.NULL)
 }
 
 fun JSONObject.toRelationshipIndexEntry(): RelationshipIndexEntry {
@@ -96,14 +99,20 @@ fun JSONObject.toConversation(fallbackId: String): Conversation {
     doc.optJSONArray("participantIds")?.let { arr ->
         for (i in 0 until arr.length()) ids.add(arr.getString(i))
     }
+    val unreadCounts = mutableMapOf<String, Long>()
+    ids.forEach { uid ->
+        val key = "unread_$uid"
+        if (doc.has(key)) unreadCounts[uid] = doc.optLong(key, 0L)
+    }
     return Conversation(
         conversationId = doc.optString("conversationId", fallbackId),
         relationshipId = doc.optString("relationshipId"),
         participantIds = ids,
         createdAt = doc.optLong("createdAt"),
-        lastMessage = doc.optNullableString("lastMessage"),           // ← تغییر
-        lastMessageAt = if (doc.has("lastMessageAt") && !doc.isNull("lastMessageAt")) doc.optLong("lastMessageAt") else null,  // ← تغییر
-        lastMessageSenderId = doc.optNullableString("lastMessageSenderId")   // ← تغییر
+        lastMessage = doc.optNullableString("lastMessage"),
+        lastMessageAt = if (doc.has("lastMessageAt") && !doc.isNull("lastMessageAt")) doc.optLong("lastMessageAt") else null,
+        lastMessageSenderId = doc.optNullableString("lastMessageSenderId"),
+        unreadCounts = unreadCounts
     )
 }
 
@@ -115,9 +124,14 @@ fun Conversation.toJson(): JSONObject = JSONObject().apply {
     put("lastMessage", lastMessage ?: JSONObject.NULL)
     put("lastMessageAt", lastMessageAt ?: JSONObject.NULL)
     put("lastMessageSenderId", lastMessageSenderId ?: JSONObject.NULL)
+    unreadCounts.forEach { (uid, count) -> put("unread_$uid", count) }
 }
 fun JSONObject.toMessage(fallbackId: String, conversationId: String): Message {
     val doc = unwrapDocument()
+    val reactionsMap = mutableMapOf<String, String>()
+    doc.optJSONObject("reactions")?.let { obj ->
+        obj.keys().forEach { uid -> reactionsMap[uid] = obj.optString(uid) }
+    }
     return Message(
         messageId = doc.optString("messageId", fallbackId),
         conversationId = conversationId,
@@ -133,8 +147,15 @@ fun JSONObject.toMessage(fallbackId: String, conversationId: String): Message {
         durationMs = if (doc.has("durationMs")) doc.optLong("durationMs") else null,
         mimeType = doc.optString("mimeType").ifBlank { null },
         fileSize = if (doc.has("fileSize")) doc.optLong("fileSize") else null,
+        fileName = doc.optString("fileName").ifBlank { null },
         proposalStatus = doc.optString("proposalStatus").ifBlank { null }
-            ?.let { runCatching { ProposalStatus.valueOf(it) }.getOrNull() }
+            ?.let { runCatching { ProposalStatus.valueOf(it) }.getOrNull() },
+        reactions = reactionsMap
+,replyToMessageId = doc.optNullableString("replyToMessageId"),
+        replyToSenderId = doc.optNullableString("replyToSenderId"),
+        replyToText = doc.optNullableString("replyToText"),
+        replyToType = doc.optNullableString("replyToType")
+            ?.let { runCatching { MessageType.valueOf(it) }.getOrNull() },
     )
 }
 
@@ -150,7 +171,13 @@ fun Message.toJson(): JSONObject = JSONObject().apply {
     put("durationMs", durationMs ?: JSONObject.NULL)
     put("mimeType", mimeType ?: JSONObject.NULL)
     put("fileSize", fileSize ?: JSONObject.NULL)
+    put("fileName", fileName ?: JSONObject.NULL)
     put("proposalStatus", proposalStatus?.name ?: JSONObject.NULL)
+    put("reactions", JSONObject().apply { reactions.forEach { (uid, emoji) -> put(uid, emoji) } })
+    put("replyToMessageId", replyToMessageId ?: JSONObject.NULL)
+    put("replyToSenderId", replyToSenderId ?: JSONObject.NULL)
+    put("replyToText", replyToText ?: JSONObject.NULL)
+    put("replyToType", replyToType?.name ?: JSONObject.NULL)
 }
 fun ChatListItemUiState.toJson(): JSONObject = JSONObject().apply {
     put("relationshipId", relationshipId)

@@ -25,6 +25,9 @@ import retrofit2.http.POST
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import android.provider.Settings
+import com.google.firebase.messaging.FirebaseMessaging
+import fit.vcare.apps.fcm.registerFcmToken
+import kotlinx.coroutines.tasks.await
 
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -97,6 +100,11 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
                 _loginSuccess.value = true
                 createUserProfileIfNeeded(context, uid, email)
+                viewModelScope.launch {
+                    runCatching { FirebaseMessaging.getInstance().token.await() }
+                        .getOrNull()?.let { token -> registerFcmToken(context, token) }
+                }
+
                 _isLoading.value = false
 
                 try {
@@ -131,7 +139,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         return try {
-            val readUrl = "${ApiFirebase.FIRSTFIRE_URL}read?path=user/$uid"
+            val readUrl = "${ApiFirebase.FIRSTFIRE_URL}read-data?path=user/$uid"
 
             val responseJson = DataSyncManager.fetchAndCacheData(
                 context = context,

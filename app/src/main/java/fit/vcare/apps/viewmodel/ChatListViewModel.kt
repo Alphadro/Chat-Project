@@ -9,6 +9,10 @@ import fit.vcare.apps.data.mapper.toJsonArray
 import fit.vcare.apps.data.repository.ChatRepositoryImpl
 import fit.vcare.apps.data.repository.LocalDataCache
 import fit.vcare.apps.data.repository.PartnerRepositoryImpl
+import fit.vcare.apps.data.repository.getMyUidOrEmpty
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -21,7 +25,8 @@ data class ChatListItemUiState(
     val partnerName: String,
     val partnerPhotoUrl: String? = null,
     val lastMessage: String?,
-    val lastMessageAt: Long?
+    val lastMessageAt: Long?,
+    val unreadCount: Long = 0
 )
 
 data class ChatListUiState(
@@ -73,19 +78,25 @@ class ChatListViewModel(application: Application) : AndroidViewModel(application
                 return@launch
             }
 
-            val items = relationships.mapNotNull { entry ->
-                val conversation = ChatRepositoryImpl.getConversation(context, entry.relationshipId).getOrNull()
-                val partnerInfo = PartnerRepositoryImpl.getUserBasicInfo(context, entry.partnerUid).getOrNull()
-                if (conversation == null) return@mapNotNull null
-                ChatListItemUiState(
-                    relationshipId = entry.relationshipId,
-                    conversationId = conversation.conversationId,
-                    partnerUid = entry.partnerUid,
-                    partnerName = partnerInfo?.displayName ?: entry.partnerUid,
-                    partnerPhotoUrl = partnerInfo?.photoUrl,
-                    lastMessage = conversation.lastMessage,
-                    lastMessageAt = conversation.lastMessageAt
-                )
+            val myUid = getMyUidOrEmpty(context)
+
+            val items = coroutineScope {
+                relationships.map { entry ->
+                    async {
+                        val conversation = ChatRepositoryImpl.getConversation(context, entry.relationshipId).getOrNull()
+                        val partnerInfo = PartnerRepositoryImpl.getUserBasicInfo(context, entry.partnerUid).getOrNull()
+                        if (conversation == null) return@async null
+                        ChatListItemUiState(
+                            relationshipId = entry.relationshipId,
+                            conversationId = conversation.conversationId,
+                            partnerUid = entry.partnerUid,
+                            partnerName = partnerInfo?.displayName ?: entry.partnerUid,
+                            partnerPhotoUrl = partnerInfo?.photoUrl,
+                            lastMessage = conversation.lastMessage,
+                            lastMessageAt = conversation.lastMessageAt
+                        )
+                    }
+                }.awaitAll().filterNotNull()
             }.sortedByDescending { it.lastMessageAt ?: 0L }
 
             _uiState.value = _uiState.value.copy(isLoading = false, items = items, error = null)
