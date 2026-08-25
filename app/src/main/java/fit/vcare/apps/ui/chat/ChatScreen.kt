@@ -31,7 +31,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalDensity
 import fit.vcare.apps.domain.model.RelationshipStatus
 
-
+//ChatScreen
 @Composable
 fun ChatScreen(
     navController: NavController,

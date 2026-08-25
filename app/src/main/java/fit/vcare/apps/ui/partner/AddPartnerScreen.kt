@@ -17,7 +17,7 @@ import androidx.navigation.NavController
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import fit.vcare.apps.viewmodel.PartnerViewModel
-
+//AddPartnerScreen.kt
 private fun generateQrBitmap(content: String, size: Int = 512): Bitmap {
     val writer = QRCodeWriter()
     val matrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size)

@@ -22,7 +22,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-
+//MessagingService.kt
 class VCareFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
@@ -31,7 +31,6 @@ class VCareFirebaseMessagingService : FirebaseMessagingService() {
             registerFcmToken(applicationContext, token)
         }
     }
-
 
 
     private fun showChatNotification(
@@ -73,10 +72,12 @@ class VCareFirebaseMessagingService : FirebaseMessagingService() {
             .build()
 
         if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
-            == PackageManager.PERMISSION_GRANTED) {
+            == PackageManager.PERMISSION_GRANTED
+        ) {
             notificationManager.notify(conversationId.hashCode(), notification)
         }
     }
+
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
 

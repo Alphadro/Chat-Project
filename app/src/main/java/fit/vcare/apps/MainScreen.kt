@@ -26,7 +26,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import fit.vcare.apps.mainPage_Nav.nav.AppNavigation
 import fit.vcare.apps.mainPage_Nav.nav.Routes
-
+//MainScreen.kt
 data class BottomNavItem(
     val title: String,
     val route: String,

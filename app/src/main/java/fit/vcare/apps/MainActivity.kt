@@ -21,7 +21,7 @@ import androidx.lifecycle.lifecycleScope
 import fit.vcare.apps.tools.SessionExpiryNotifier
 import fit.vcare.apps.ui.theme.ChatProjectTheme
 import kotlinx.coroutines.launch
-
+//MainActivity.kt
 class MainActivity : ComponentActivity() {
 
     private val notificationPermissionLauncher =

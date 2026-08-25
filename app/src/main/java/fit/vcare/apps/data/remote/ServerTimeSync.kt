@@ -5,11 +5,7 @@ import fit.vcare.apps.tools.FirestoreApiClient
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/**
- * افست بین ساعت سرور و ساعت دستگاه رو اندازه می‌گیره تا پیام‌های Pending
- * با یک createdAt نزدیک به چیزی که سرور نهایتاً ست می‌کنه ساخته بشن —
- * جلوگیری از به‌هم‌ریختن ترتیب پیام‌ها موقع merge (server + pending).
- */
+//ServerTimeSync
 object ServerTimeSync {
 
     @Volatile private var offsetMs: Long = 0L

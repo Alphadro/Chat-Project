@@ -2,11 +2,7 @@ package fit.vcare.apps.data.repository
 
 import android.content.Context
 import fit.vcare.apps.login_system.getUid
-
-/**
- * Wrapper کوچک روی appPrefs موجود در پروژه.
- * اگر ساختار appPrefs فرق دارد، این توابع را مطابق آن اصلاح کنید.
- */
+//UidHelper.kt
 fun getMyUidOrEmpty(context: Context): String {
     return getUid(context) ?: ""
 }

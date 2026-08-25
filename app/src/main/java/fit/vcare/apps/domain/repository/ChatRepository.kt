@@ -7,7 +7,7 @@ import fit.vcare.apps.domain.model.ProposalStatus
 import fit.vcare.apps.domain.model.ReplyInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
-
+//ChatRepository
 interface ChatRepository {
     suspend fun getOrCreateConversation(
         context: Context,

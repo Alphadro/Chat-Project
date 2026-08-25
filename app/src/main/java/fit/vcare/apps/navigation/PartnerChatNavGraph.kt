@@ -14,7 +14,7 @@ import fit.vcare.apps.ui.partner.PartnerInviteAcceptScreen
 import fit.vcare.apps.ui.partner.PartnerProfileScreen
 import fit.vcare.apps.ui.partner.ScanPartnerScreen
 import fit.vcare.apps.ui.setting.ChatGlobalAppearanceScreen
-
+//PartnerChatNavGraph.kt
 object PartnerChatRoutes {
     const val ADD_PARTNER = "add_partner"
     const val SCAN_PARTNER = "scan_partner"

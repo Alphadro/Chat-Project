@@ -36,6 +36,7 @@ import fit.vcare.apps.domain.model.Message
 import fit.vcare.apps.domain.model.MessageType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
 //ChatBubbleComponents.kt
 @Composable
 fun ReplyQuoteBlock(
@@ -131,9 +132,8 @@ fun ChatBubbleImage(url: String) {
         }
     }
 }
-
 @Composable
-fun VideoThumbnail(url: String, durationMs: Long, onClick: () -> Unit) {
+fun VideoThumbnail(url: String, durationMs: Long) {
     var thumbnail by remember(url) { mutableStateOf<android.graphics.Bitmap?>(null) }
     val context = LocalContext.current
 
@@ -152,8 +152,7 @@ fun VideoThumbnail(url: String, durationMs: Long, onClick: () -> Unit) {
         modifier = Modifier
             .size(width = IMAGE_MAX_WIDTH, height = 220.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.Black)
-            .clickable { onClick() },
+            .background(Color.Black),
         contentAlignment = Alignment.Center
     ) {
         thumbnail?.let { bmp ->
@@ -170,7 +169,12 @@ fun VideoThumbnail(url: String, durationMs: Long, onClick: () -> Unit) {
                 .background(Color.Black.copy(alpha = 0.5f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Filled.PlayArrow, contentDescription = "پخش", tint = Color.White, modifier = Modifier.size(28.dp))
+            Icon(
+                Icons.Filled.PlayArrow,
+                contentDescription = "پخش",
+                tint = Color.White,
+                modifier = Modifier.size(28.dp)
+            )
         }
         if (durationMs > 0) {
             Text(
@@ -187,8 +191,9 @@ fun VideoThumbnail(url: String, durationMs: Long, onClick: () -> Unit) {
     }
 }
 
+@androidx.media3.common.util.UnstableApi
 @Composable
-fun VideoPreviewPlayer(uri: Uri) {
+fun VideoPreviewPlayer(uri: Uri, modifier: Modifier = Modifier.fillMaxSize()) {
     val context = LocalContext.current
     val exoPlayer = remember {
         androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
@@ -200,13 +205,17 @@ fun VideoPreviewPlayer(uri: Uri) {
     androidx.compose.runtime.DisposableEffect(Unit) {
         onDispose { exoPlayer.release() }
     }
-    androidx.compose.ui.viewinterop.AndroidView(
-        factory = {
-            androidx.media3.ui.PlayerView(it).apply {
-                player = exoPlayer
-                useController = true
-            }
-        },
-        modifier = Modifier.fillMaxWidth().height(400.dp)
-    )
+    Box(modifier = modifier.background(Color.Black), contentAlignment = Alignment.Center) {
+        androidx.compose.ui.viewinterop.AndroidView(
+            factory = {
+                androidx.media3.ui.PlayerView(it).apply {
+                    player = exoPlayer
+                    useController = true
+                    resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    setShutterBackgroundColor(android.graphics.Color.BLACK)
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
 }

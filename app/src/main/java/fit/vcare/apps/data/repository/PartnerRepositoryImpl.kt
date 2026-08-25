@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-
+//PartnerRepositoryImpl.kt
 object PartnerRepositoryImpl : PartnerRepository {
 
     private const val INVITE_TTL_MS = 24 * 60 * 60 * 1000L // 24 ساعت — Assumption

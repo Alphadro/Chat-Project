@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-
+//PartnerProfileViewModel.kt
 data class PartnerProfileUiState(
     val isLoading: Boolean = true,
     val userInfo: PartnerUserInfo? = null,

@@ -26,7 +26,7 @@ import java.util.Calendar
 import fit.vcare.apps.domain.model.PartnerPresence
 import fit.vcare.apps.viewmodel.PartnerProfileViewModel
 
-
+//PartnerProfileScreen.kt
 private const val PROFILE_PRESENCE_STALE_MS = 20_000L
 private val profileTimeFormatter = SimpleDateFormat("HH:mm", Locale.getDefault())
 private val PROFILE_AVATAR_SIZE = 140.dp

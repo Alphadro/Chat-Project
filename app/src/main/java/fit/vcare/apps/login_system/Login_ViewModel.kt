@@ -28,7 +28,7 @@ import android.provider.Settings
 import com.google.firebase.messaging.FirebaseMessaging
 import fit.vcare.apps.fcm.registerFcmToken
 import kotlinx.coroutines.tasks.await
-
+//Login_ViewModel.kt
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isLoading = MutableStateFlow(false)

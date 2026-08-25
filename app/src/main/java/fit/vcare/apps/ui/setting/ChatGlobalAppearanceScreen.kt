@@ -49,7 +49,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import fit.vcare.apps.data.local.ChatAppearancePrefs
 import fit.vcare.apps.domain.model.ChatThemePresets
-
+//ChatGlobalAppearanceScreen.kt
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatGlobalAppearanceScreen(navController: NavController) {

@@ -1,6 +1,7 @@
 package fit.vcare.apps.ui.chat
 
 import android.net.Uri
+import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -24,8 +25,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.media3.common.util.UnstableApi
 import coil.compose.AsyncImage
+
 //ChatFullscreenViewers.kt
+@OptIn(UnstableApi::class)
 @Composable
 fun FullscreenVideoDialog(
     videoUrl: String,
@@ -35,8 +39,13 @@ fun FullscreenVideoDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-            VideoPreviewPlayer(uri = Uri.parse(videoUrl))
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            VideoPreviewPlayer(uri = Uri.parse(videoUrl), modifier = Modifier.fillMaxSize())
             IconButton(
                 onClick = onDismiss,
                 modifier = Modifier
@@ -63,7 +72,9 @@ fun FullscreenImageDialog(
         var offsetX by remember(imageUrl) { mutableStateOf(0f) }
         var offsetY by remember(imageUrl) { mutableStateOf(0f) }
 
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)) {
             AsyncImage(
                 model = imageUrl,
                 contentDescription = "نمایش تمام‌صفحه تصویر",

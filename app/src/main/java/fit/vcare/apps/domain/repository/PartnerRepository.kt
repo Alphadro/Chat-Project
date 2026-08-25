@@ -4,7 +4,7 @@ import android.content.Context
 import fit.vcare.apps.domain.model.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
-
+//PartnerRepository
 interface PartnerRepository {
     suspend fun createInvite(context: Context): Result<PartnerInvite>
     suspend fun getInvite(context: Context, token: String): Result<PartnerInvite>

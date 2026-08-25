@@ -2,11 +2,7 @@ package fit.vcare.apps.domain.model
 
 
 import androidx.compose.ui.graphics.Color
-
-/**
- * یک preset رنگ برای حباب پیام‌های "خودم". هر preset یک نسخه‌ی روشن و یک نسخه‌ی تیره دارد
- * که بسته به حالت سیستم (Light/Dark) به‌صورت خودکار انتخاب می‌شود.
- */
+//ChatAppearance.kt
 data class ChatThemeOption(
     val key: String,
     val label: String,

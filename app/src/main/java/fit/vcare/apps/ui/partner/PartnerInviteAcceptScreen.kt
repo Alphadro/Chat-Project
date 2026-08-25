@@ -10,7 +10,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import fit.vcare.apps.viewmodel.PartnerViewModel
-
+//PartnerInviteAcceptScreen.kt
 @Composable
 fun PartnerInviteAcceptScreen(
     navController: NavController,

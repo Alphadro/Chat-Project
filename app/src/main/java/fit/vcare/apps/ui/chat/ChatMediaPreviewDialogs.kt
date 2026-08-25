@@ -35,20 +35,39 @@ fun PendingVideoPreviewDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-            Row(modifier = Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.End) {
+        Column(modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
                 }
             }
-            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                VideoPreviewPlayer(uri = videoUri)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                VideoPreviewPlayer(uri = videoUri, modifier = Modifier.fillMaxSize())
             }
-            Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 OutlinedTextField(
                     value = videoCaption,
                     onValueChange = { videoCaption = it },
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp, max = 120.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp, max = 120.dp),
                     placeholder = { Text("افزودن توضیح...", color = Color.Gray) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,
@@ -78,15 +97,26 @@ fun PendingFilePreviewDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface, androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                .background(
+                    MaterialTheme.colorScheme.surface,
+                    androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                )
                 .padding(16.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.InsertDriveFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(
+                    Icons.Filled.InsertDriveFile,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
                 Spacer(Modifier.width(8.dp))
                 Column {
                     Text(fileName, maxLines = 1)
-                    Text(formatFileSize(fileSize), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        formatFileSize(fileSize),
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -121,11 +151,18 @@ fun PendingAudioPreviewDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface, androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                .background(
+                    MaterialTheme.colorScheme.surface,
+                    androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                )
                 .padding(16.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(
+                    Icons.Filled.Mic,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
                 Spacer(Modifier.width(8.dp))
                 Text("پیام صوتی — ${formatDuration(durationMs)}")
             }
@@ -148,6 +185,7 @@ fun PendingAudioPreviewDialog(
         }
     }
 }
+
 @Composable
 fun PendingImagePreviewDialog(
     imageUri: Uri,
@@ -159,13 +197,25 @@ fun PendingImagePreviewDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-            Row(modifier = Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.End) {
+        Column(modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
                 }
             }
-            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
                 coil.compose.AsyncImage(
                     model = imageUri,
                     contentDescription = "پیش‌نمایش عکس",
@@ -173,11 +223,18 @@ fun PendingImagePreviewDialog(
                     modifier = Modifier.fillMaxSize()
                 )
             }
-            Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 OutlinedTextField(
                     value = imageCaption,
                     onValueChange = { imageCaption = it },
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp, max = 120.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp, max = 120.dp),
                     placeholder = { Text("افزودن توضیح...", color = Color.Gray) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,

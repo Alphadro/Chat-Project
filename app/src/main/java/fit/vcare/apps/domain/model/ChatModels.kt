@@ -1,5 +1,5 @@
 package fit.vcare.apps.domain.model
-
+//ChatModels.kt
 enum class MessageType { TEXT, IMAGE, VIDEO, FILE, AUDIO, SYSTEM, WALLPAPER_PROPOSAL }
 enum class MessageStatus { PENDING, SENT, DELIVERED, READ }
 enum class ProposalStatus { PENDING, ACCEPTED, REJECTED }

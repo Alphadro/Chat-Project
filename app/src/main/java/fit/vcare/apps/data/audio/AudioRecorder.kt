@@ -7,12 +7,7 @@ import android.media.MediaRecorder
 import android.os.Build
 import java.io.File
 import java.io.IOException
-
-/**
- * مسئول start/stop/cancel/release ضبط صدا با MediaRecorder استاندارد.
- * خروجی: فایل MPEG_4 (container) + AAC (codec) یعنی .m4a — کیفیت مناسب صدا، حجم کم، سازگاری بالا.
- * فایل موقت داخل cacheDir ساخته می‌شود.
- */
+//AudioRecorder.kt
 class AudioRecorder(private val context: Context) {
 
     private var recorder: MediaRecorder? = null

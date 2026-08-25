@@ -1,5 +1,5 @@
 package fit.vcare.apps.domain.model
-
+//PartnerModels.kt
 enum class InviteStatus { ACTIVE, ACCEPTED, EXPIRED, CANCELLED }
 
 data class PartnerInvite(

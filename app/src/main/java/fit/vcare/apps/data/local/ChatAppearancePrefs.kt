@@ -4,11 +4,7 @@ package fit.vcare.apps.data.local
 import android.content.Context
 import fit.vcare.apps.domain.model.ChatThemePresets
 
-/**
- * ذخیره‌سازی محلی (فقط روی همین دستگاه) تنظیمات ظاهری هر Conversation:
- * پس‌زمینه‌ی چت و تم رنگی حباب پیام‌ها. این تنظیمات به سرور ارسال نمی‌شوند
- * و مخصوص همان چت روی همین دستگاه باقی می‌مانند.
- */
+///ChatAppearancePrefs
 object ChatAppearancePrefs {
 
     private const val PREFS_NAME = "chat_appearance_prefs"

@@ -12,7 +12,7 @@ import androidx.navigation.NavController
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import fit.vcare.apps.viewmodel.PartnerViewModel
-
+//ScanPartnerScreen.kt
 @Composable
 fun ScanPartnerScreen(
     navController: NavController,

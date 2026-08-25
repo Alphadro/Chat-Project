@@ -13,11 +13,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-/**
- * آپلود تصویر و صدای چت. هر دو تابع عمومی (uploadImage, uploadAudio) بدون تغییر رفتار
- * روی یک تابع خصوصی مشترک (uploadFile) سوار شدند — رفتار uploadImage عیناً حفظ شده،
- * فقط منطق تکراری حذف شد.
- */
+//MediaRepository.kt
 interface MediaRepository {
     suspend fun uploadImage(context: Context, imageBytes: ByteArray): Result<String>
     suspend fun uploadAudio(context: Context, audioBytes: ByteArray, mimeType: String): Result<String>

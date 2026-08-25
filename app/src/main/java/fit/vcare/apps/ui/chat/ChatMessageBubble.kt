@@ -101,7 +101,10 @@ fun MessageBubbleRow(
                         onDragCancel = { dragOffsetX = 0f },
                         onHorizontalDrag = { change, delta ->
                             change.consume()
-                            dragOffsetX = (dragOffsetX + delta).coerceIn(-replyThresholdPx * 1.3f, replyThresholdPx * 1.3f)
+                            dragOffsetX = (dragOffsetX + delta).coerceIn(
+                                -replyThresholdPx * 1.3f,
+                                replyThresholdPx * 1.3f
+                            )
                         }
                     )
                 },
@@ -109,43 +112,81 @@ fun MessageBubbleRow(
         ) {
             when (message.type) {
                 MessageType.FILE -> FileMessageBubble(
-                    message = message, isMine = isMine, isPending = isPending, highlightModifier = highlightModifier,
-                    currentUid = currentUid, partnerName = partnerName, myBubbleColor = myBubbleColor,
-                    onLongPress = onLongPress, onDownloadFile = onDownloadFile,
+                    message = message,
+                    isMine = isMine,
+                    isPending = isPending,
+                    highlightModifier = highlightModifier,
+                    currentUid = currentUid,
+                    partnerName = partnerName,
+                    myBubbleColor = myBubbleColor,
+                    onLongPress = onLongPress,
+                    onDownloadFile = onDownloadFile,
                     onScrollToReply = { scrollToMessage(it) }
                 )
 
                 MessageType.VIDEO -> VideoMessageBubble(
-                    message = message, isMine = isMine, highlightModifier = highlightModifier,
-                    currentUid = currentUid, partnerName = partnerName, myBubbleColor = myBubbleColor,
-                    onVideoClick = onVideoClick, onScrollToReply = { scrollToMessage(it) }
+                    message = message,
+                    isMine = isMine,
+                    isPending = isPending,
+                    highlightModifier = highlightModifier,
+                    currentUid = currentUid,
+                    partnerName = partnerName,
+                    myBubbleColor = myBubbleColor,
+                    onVideoClick = onVideoClick,
+                    onDownloadFile = onDownloadFile,
+                    onLongPress = onLongPress,
+                    onScrollToReply = { scrollToMessage(it) }
                 )
 
                 MessageType.WALLPAPER_PROPOSAL -> WallpaperProposalBubble(
-                    message = message, isMine = isMine, highlightModifier = highlightModifier,
-                    currentUid = currentUid, partnerName = partnerName, myBubbleColor = myBubbleColor,
-                    onScrollToReply = { scrollToMessage(it) }, onRespond = onRespondToProposal
+                    message = message,
+                    isMine = isMine,
+                    highlightModifier = highlightModifier,
+                    currentUid = currentUid,
+                    partnerName = partnerName,
+                    myBubbleColor = myBubbleColor,
+                    onScrollToReply = { scrollToMessage(it) },
+                    onRespond = onRespondToProposal
                 )
 
                 MessageType.IMAGE -> ImageMessageBubble(
-                    message = message, isMine = isMine, isPending = isPending, highlightModifier = highlightModifier,
-                    currentUid = currentUid, partnerName = partnerName, myBubbleColor = myBubbleColor,
-                    onLongPress = onLongPress, onImageClick = onImageClick, onSaveImage = onSaveImage,
+                    message = message,
+                    isMine = isMine,
+                    isPending = isPending,
+                    highlightModifier = highlightModifier,
+                    currentUid = currentUid,
+                    partnerName = partnerName,
+                    myBubbleColor = myBubbleColor,
+                    onLongPress = onLongPress,
+                    onImageClick = onImageClick,
+                    onSaveImage = onSaveImage,
                     onScrollToReply = { scrollToMessage(it) }
                 )
 
                 MessageType.AUDIO -> AudioMessageBubble(
-                    message = message, isMine = isMine, isPending = isPending, highlightModifier = highlightModifier,
-                    currentUid = currentUid, partnerName = partnerName, myBubbleColor = myBubbleColor,
+                    message = message,
+                    isMine = isMine,
+                    isPending = isPending,
+                    highlightModifier = highlightModifier,
+                    currentUid = currentUid,
+                    partnerName = partnerName,
+                    myBubbleColor = myBubbleColor,
                     audioPlaybackState = audioPlaybackState,
-                    onLongPress = onLongPress, onToggleAudio = onToggleAudio,
+                    onLongPress = onLongPress,
+                    onToggleAudio = onToggleAudio,
                     onScrollToReply = { scrollToMessage(it) }
                 )
 
                 else -> TextMessageBubble(
-                    message = message, isMine = isMine, isPending = isPending, highlightModifier = highlightModifier,
-                    currentUid = currentUid, partnerName = partnerName, myBubbleColor = myBubbleColor,
-                    onLongPress = onLongPress, onScrollToReply = { scrollToMessage(it) }
+                    message = message,
+                    isMine = isMine,
+                    isPending = isPending,
+                    highlightModifier = highlightModifier,
+                    currentUid = currentUid,
+                    partnerName = partnerName,
+                    myBubbleColor = myBubbleColor,
+                    onLongPress = onLongPress,
+                    onScrollToReply = { scrollToMessage(it) }
                 )
             }
 
@@ -158,7 +199,10 @@ fun MessageBubbleRow(
                     grouped.forEach { (emoji, count) ->
                         Box(
                             modifier = Modifier
-                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp))
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant,
+                                    RoundedCornerShape(10.dp)
+                                )
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(text = if (count > 1) "$emoji $count" else emoji, fontSize = 13.sp)
@@ -187,8 +231,10 @@ fun MessageBubbleRow(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+
                         else -> {
-                            val isReadByPartner = partnerLastReadAt != null && partnerLastReadAt >= message.createdAt
+                            val isReadByPartner =
+                                partnerLastReadAt != null && partnerLastReadAt >= message.createdAt
                             val icon = when {
                                 isReadByPartner -> Icons.Filled.DoneAll
                                 message.status == MessageStatus.DELIVERED -> Icons.Filled.DoneAll
@@ -234,13 +280,19 @@ private fun FileMessageBubble(
                         val mime = message.mimeType?.takeIf { it.isNotBlank() } ?: "*/*"
                         val intent = Intent(Intent.ACTION_VIEW).apply {
                             setDataAndType(Uri.parse(message.mediaUrl), mime)
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            flags =
+                                Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
                         }
                         try {
                             context.startActivity(Intent.createChooser(intent, "باز کردن با"))
                         } catch (e: ActivityNotFoundException) {
                             runCatching {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(message.mediaUrl)))
+                                context.startActivity(
+                                    Intent(
+                                        Intent.ACTION_VIEW,
+                                        Uri.parse(message.mediaUrl)
+                                    )
+                                )
                             }
                         }
                     }
@@ -252,23 +304,45 @@ private fun FileMessageBubble(
     ) {
         val tint = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
         if (isPending) {
-            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = tint)
+            CircularProgressIndicator(
+                modifier = Modifier.size(24.dp),
+                strokeWidth = 2.dp,
+                color = tint
+            )
         } else {
-            Icon(Icons.Filled.InsertDriveFile, contentDescription = null, tint = tint, modifier = Modifier.size(28.dp))
+            Icon(
+                Icons.Filled.InsertDriveFile,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(28.dp)
+            )
         }
         Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
             if (!message.replyToMessageId.isNullOrBlank()) {
                 ReplyQuoteBlock(
-                    message = message, isMine = isMine, currentUid = currentUid, partnerName = partnerName,
-                    myBubbleColor = myBubbleColor, onClick = { onScrollToReply(message.replyToMessageId!!) }
+                    message = message,
+                    isMine = isMine,
+                    currentUid = currentUid,
+                    partnerName = partnerName,
+                    myBubbleColor = myBubbleColor,
+                    onClick = { onScrollToReply(message.replyToMessageId!!) }
                 )
                 Spacer(Modifier.height(4.dp))
             }
             Text(message.fileName ?: "فایل", color = tint, maxLines = 1)
-            Text(formatFileSize(message.fileSize ?: 0L), fontSize = 11.sp, color = tint.copy(alpha = 0.85f))
+            Text(
+                formatFileSize(message.fileSize ?: 0L),
+                fontSize = 11.sp,
+                color = tint.copy(alpha = 0.85f)
+            )
             if (message.text.isNotBlank()) {
-                Text(message.text, fontSize = 12.sp, color = tint, modifier = Modifier.padding(top = 2.dp))
+                Text(
+                    message.text,
+                    fontSize = 12.sp,
+                    color = tint,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
             }
         }
 
@@ -294,13 +368,17 @@ private fun FileMessageBubble(
         }
     }
 }
-
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun VideoMessageBubble(
-    message: Message, isMine: Boolean, highlightModifier: Modifier,
+    message: Message, isMine: Boolean, isPending: Boolean, highlightModifier: Modifier,
     currentUid: String, partnerName: String, myBubbleColor: Color,
-    onVideoClick: (String) -> Unit, onScrollToReply: (String) -> Unit
+    onVideoClick: (String) -> Unit, onDownloadFile: (String, String) -> Unit,
+    onLongPress: (Message) -> Unit,
+    onScrollToReply: (String) -> Unit
 ) {
+    var showVideoMenu by remember(message.messageId) { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .padding(4.dp)
@@ -319,11 +397,38 @@ private fun VideoMessageBubble(
         }
 
         if (!message.mediaUrl.isNullOrBlank()) {
-            VideoThumbnail(
-                url = message.mediaUrl,
-                durationMs = message.durationMs ?: 0L,
-                onClick = { onVideoClick(message.mediaUrl) }
-            )
+            Box(
+                modifier = Modifier.combinedClickable(
+                    onClick = { onVideoClick(message.mediaUrl) },
+                    onLongClick = { if (!isPending) onLongPress(message) }
+                )
+            ) {
+                VideoThumbnail(
+                    url = message.mediaUrl,
+                    durationMs = message.durationMs ?: 0L
+                )
+                if (!isPending) {
+                    Box(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+                        IconButton(
+                            onClick = { showVideoMenu = true },
+                            modifier = Modifier.size(28.dp)
+                                .background(Color.Black.copy(alpha = 0.35f), androidx.compose.foundation.shape.CircleShape)
+                        ) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "منو", tint = Color.White)
+                        }
+                        DropdownMenu(expanded = showVideoMenu, onDismissRequest = { showVideoMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("دانلود ویدیو") },
+                                leadingIcon = { Icon(Icons.Filled.Download, contentDescription = null) },
+                                onClick = {
+                                    showVideoMenu = false
+                                    onDownloadFile(message.mediaUrl, "video_${message.messageId}.mp4")
+                                }
+                            )
+                        }
+                    }
+                }
+            }
         } else {
             Box(modifier = Modifier.size(width = 220.dp, height = 220.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp))
@@ -356,8 +461,12 @@ private fun WallpaperProposalBubble(
         if (!message.mediaUrl.isNullOrBlank()) {
             if (!message.replyToMessageId.isNullOrBlank()) {
                 ReplyQuoteBlock(
-                    message = message, isMine = isMine, currentUid = currentUid, partnerName = partnerName,
-                    myBubbleColor = myBubbleColor, onClick = { onScrollToReply(message.replyToMessageId!!) }
+                    message = message,
+                    isMine = isMine,
+                    currentUid = currentUid,
+                    partnerName = partnerName,
+                    myBubbleColor = myBubbleColor,
+                    onClick = { onScrollToReply(message.replyToMessageId!!) }
                 )
                 Spacer(Modifier.height(4.dp))
             }
@@ -365,7 +474,10 @@ private fun WallpaperProposalBubble(
                 model = message.mediaUrl,
                 contentDescription = "پیشنهاد پس‌زمینه",
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(8.dp))
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .clip(RoundedCornerShape(8.dp))
             )
             Spacer(Modifier.height(6.dp))
         }
@@ -382,13 +494,22 @@ private fun WallpaperProposalBubble(
                         Text("قبول", fontSize = 12.sp)
                     }
                     Spacer(Modifier.width(8.dp))
-                    OutlinedButton(onClick = { onRespond(message, false) }, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(
+                        onClick = { onRespond(message, false) },
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Text("رد", fontSize = 12.sp)
                     }
                 }
             }
+
             isMine && message.proposalStatus == ProposalStatus.PENDING ->
-                Text("در انتظار پاسخ...", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "در انتظار پاسخ...",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
             message.proposalStatus == ProposalStatus.ACCEPTED ->
                 Text("پذیرفته شد ✓", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
         }
@@ -422,18 +543,37 @@ private fun ImageMessageBubble(
             Box {
                 ChatBubbleImage(url = message.mediaUrl)
                 if (!isPending) {
-                    Box(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(4.dp)
+                    ) {
                         IconButton(
                             onClick = { showImageMenu = true },
-                            modifier = Modifier.size(28.dp)
-                                .background(Color.Black.copy(alpha = 0.35f), androidx.compose.foundation.shape.CircleShape)
+                            modifier = Modifier
+                                .size(28.dp)
+                                .background(
+                                    Color.Black.copy(alpha = 0.35f),
+                                    androidx.compose.foundation.shape.CircleShape
+                                )
                         ) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "منو", tint = Color.White)
+                            Icon(
+                                Icons.Filled.MoreVert,
+                                contentDescription = "منو",
+                                tint = Color.White
+                            )
                         }
-                        DropdownMenu(expanded = showImageMenu, onDismissRequest = { showImageMenu = false }) {
+                        DropdownMenu(
+                            expanded = showImageMenu,
+                            onDismissRequest = { showImageMenu = false }) {
                             DropdownMenuItem(
                                 text = { Text("ذخیره در گالری") },
-                                leadingIcon = { Icon(Icons.Filled.Download, contentDescription = null) },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Filled.Download,
+                                        contentDescription = null
+                                    )
+                                },
                                 onClick = { showImageMenu = false; onSaveImage(message.mediaUrl) }
                             )
                         }
@@ -443,18 +583,29 @@ private fun ImageMessageBubble(
         } else {
             if (!message.replyToMessageId.isNullOrBlank()) {
                 ReplyQuoteBlock(
-                    message = message, isMine = isMine, currentUid = currentUid, partnerName = partnerName,
-                    myBubbleColor = myBubbleColor, onClick = { onScrollToReply(message.replyToMessageId!!) }
+                    message = message,
+                    isMine = isMine,
+                    currentUid = currentUid,
+                    partnerName = partnerName,
+                    myBubbleColor = myBubbleColor,
+                    onClick = { onScrollToReply(message.replyToMessageId!!) }
                 )
                 Spacer(Modifier.height(4.dp))
             }
-            Box(modifier = Modifier.size(width = 220.dp, height = 220.dp), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier.size(width = 220.dp, height = 220.dp),
+                contentAlignment = Alignment.Center
+            ) {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp))
             }
         }
 
         if (message.text.isNotBlank()) {
-            Text(text = message.text, modifier = Modifier.padding(8.dp), color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                text = message.text,
+                modifier = Modifier.padding(8.dp),
+                color = MaterialTheme.colorScheme.onSurface
+            )
         }
         if (message.isEdited) {
             Text(
@@ -477,9 +628,13 @@ private fun AudioMessageBubble(
 ) {
     val isThisPlaying = audioPlaybackState.playingMessageId == message.messageId
     val progress = if (isThisPlaying && audioPlaybackState.durationMs > 0) {
-        (audioPlaybackState.positionMs.toFloat() / audioPlaybackState.durationMs.toFloat()).coerceIn(0f, 1f)
+        (audioPlaybackState.positionMs.toFloat() / audioPlaybackState.durationMs.toFloat()).coerceIn(
+            0f,
+            1f
+        )
     } else 0f
-    val displayTimeMs = if (isThisPlaying) audioPlaybackState.positionMs else (message.durationMs ?: 0L)
+    val displayTimeMs =
+        if (isThisPlaying) audioPlaybackState.positionMs else (message.durationMs ?: 0L)
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -499,7 +654,11 @@ private fun AudioMessageBubble(
     ) {
         val iconTint = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
         if (isPending) {
-            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp, color = iconTint)
+            CircularProgressIndicator(
+                modifier = Modifier.size(28.dp),
+                strokeWidth = 2.dp,
+                color = iconTint
+            )
         } else {
             Icon(
                 imageVector = if (isThisPlaying && audioPlaybackState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
@@ -516,8 +675,12 @@ private fun AudioMessageBubble(
 
             if (!message.replyToMessageId.isNullOrBlank()) {
                 ReplyQuoteBlock(
-                    message = message, isMine = isMine, currentUid = currentUid, partnerName = partnerName,
-                    myBubbleColor = myBubbleColor, onClick = { onScrollToReply(message.replyToMessageId!!) }
+                    message = message,
+                    isMine = isMine,
+                    currentUid = currentUid,
+                    partnerName = partnerName,
+                    myBubbleColor = myBubbleColor,
+                    onClick = { onScrollToReply(message.replyToMessageId!!) }
                 )
                 Spacer(Modifier.height(4.dp))
             }
@@ -532,7 +695,9 @@ private fun AudioMessageBubble(
                 },
                 onValueChangeFinished = { dragValue = null },
                 enabled = isLoaded,
-                modifier = Modifier.fillMaxWidth().height(20.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(20.dp),
                 colors = SliderDefaults.colors(
                     thumbColor = iconTint, activeTrackColor = iconTint,
                     inactiveTrackColor = iconTint.copy(alpha = 0.3f),
@@ -541,9 +706,18 @@ private fun AudioMessageBubble(
                 )
             )
             Spacer(Modifier.height(2.dp))
-            Text(text = formatDuration(displayTimeMs), fontSize = 11.sp, color = iconTint.copy(alpha = 0.85f))
+            Text(
+                text = formatDuration(displayTimeMs),
+                fontSize = 11.sp,
+                color = iconTint.copy(alpha = 0.85f)
+            )
             if (message.text.isNotBlank()) {
-                Text(text = message.text, fontSize = 12.sp, color = iconTint, modifier = Modifier.padding(top = 2.dp))
+                Text(
+                    text = message.text,
+                    fontSize = 12.sp,
+                    color = iconTint,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
             }
         }
     }
@@ -571,16 +745,25 @@ private fun TextMessageBubble(
         Column {
             if (!message.replyToMessageId.isNullOrBlank()) {
                 ReplyQuoteBlock(
-                    message = message, isMine = isMine, currentUid = currentUid, partnerName = partnerName,
-                    myBubbleColor = myBubbleColor, onClick = { onScrollToReply(message.replyToMessageId!!) }
+                    message = message,
+                    isMine = isMine,
+                    currentUid = currentUid,
+                    partnerName = partnerName,
+                    myBubbleColor = myBubbleColor,
+                    onClick = { onScrollToReply(message.replyToMessageId!!) }
                 )
                 Spacer(Modifier.height(4.dp))
             }
-            Text(text = message.text, color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface)
+            Text(
+                text = message.text,
+                color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
+            )
             if (message.isEdited) {
                 Text(
                     text = "ویرایش شده", fontSize = 10.sp,
-                    color = (if (isMine) Color.White else MaterialTheme.colorScheme.onSurface).copy(alpha = 0.6f)
+                    color = (if (isMine) Color.White else MaterialTheme.colorScheme.onSurface).copy(
+                        alpha = 0.6f
+                    )
                 )
             }
         }

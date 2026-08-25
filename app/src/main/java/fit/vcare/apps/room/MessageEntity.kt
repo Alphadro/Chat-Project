@@ -7,7 +7,7 @@ import fit.vcare.apps.domain.model.MessageStatus
 import fit.vcare.apps.domain.model.MessageType
 import fit.vcare.apps.domain.model.ProposalStatus
 import org.json.JSONObject
-
+//MessageEntity.kt
 @Entity(
     tableName = "messages",
     primaryKeys = ["messageId"],

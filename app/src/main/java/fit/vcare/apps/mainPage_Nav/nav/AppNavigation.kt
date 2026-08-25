@@ -10,7 +10,7 @@ import androidx.navigation.compose.composable
 import fit.vcare.apps.Splash
 import fit.vcare.apps.mainPage_Nav.pages.*
 import fit.vcare.apps.navigation.partnerChatGraph
-
+//AppNavigation.kt
 object Routes {
     const val SPLASH = "splash"
     const val FITFLOW = "fitflow"

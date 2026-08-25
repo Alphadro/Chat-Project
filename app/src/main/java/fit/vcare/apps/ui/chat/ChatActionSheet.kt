@@ -1,6 +1,8 @@
 package fit.vcare.apps.ui.chat
 
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import fit.vcare.apps.domain.model.Message
 import fit.vcare.apps.domain.model.MessageStatus
 import fit.vcare.apps.domain.model.MessageType
+
 //ChatActionSheet.kt
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,6 +40,7 @@ fun MessageActionSheet(
 ) {
     val isMine = message.senderId == currentUid
     val isImage = message.type == MessageType.IMAGE
+    val isVideo = message.type == MessageType.VIDEO
     val isAudio = message.type == MessageType.AUDIO
     val isWallpaperProposal = message.type == MessageType.WALLPAPER_PROPOSAL
 
@@ -44,16 +48,35 @@ fun MessageActionSheet(
         Column(modifier = Modifier.padding(bottom = 16.dp)) {
 
             if (message.status != MessageStatus.PENDING) {
+                val myReaction = message.reactions[currentUid]
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
                     QUICK_REACTIONS.forEach { emoji ->
+                        val isSelected = emoji == myReaction
                         Text(
                             text = emoji,
                             fontSize = 26.sp,
                             modifier = Modifier
                                 .clip(CircleShape)
+                                .then(
+                                    if (isSelected)
+                                        Modifier
+                                            .background(
+                                                MaterialTheme.colorScheme.primary.copy(
+                                                    alpha = 0.15f
+                                                )
+                                            )
+                                            .border(
+                                                2.dp,
+                                                MaterialTheme.colorScheme.primary,
+                                                CircleShape
+                                            )
+                                    else Modifier
+                                )
                                 .clickable {
                                     onToggleReaction(message, emoji)
                                     onDismiss()
@@ -64,7 +87,6 @@ fun MessageActionSheet(
                 }
                 Divider()
             }
-
             ListItem(
                 headlineContent = { Text("پاسخ") },
                 leadingContent = { Icon(Icons.Filled.Reply, contentDescription = null) },
@@ -79,6 +101,16 @@ fun MessageActionSheet(
                 )
             }
 
+            if (isVideo && message.status != MessageStatus.PENDING && !message.mediaUrl.isNullOrBlank()) {
+                ListItem(
+                    headlineContent = { Text("دانلود ویدیو") },
+                    leadingContent = { Icon(Icons.Filled.Download, contentDescription = null) },
+                    modifier = Modifier.clickable {
+                        onDownloadFile(message.mediaUrl!!, "video_${message.messageId}.mp4")
+                        onDismiss()
+                    }
+                )
+            }
             if (message.type == MessageType.FILE && message.status != MessageStatus.PENDING && !message.mediaUrl.isNullOrBlank()) {
                 ListItem(
                     headlineContent = { Text("دانلود فایل") },
@@ -90,7 +122,7 @@ fun MessageActionSheet(
                 )
             }
 
-            if (!isImage && !isAudio && !isWallpaperProposal) {
+            if (!isImage && !isVideo && !isAudio && !isWallpaperProposal) {
                 ListItem(
                     headlineContent = { Text("Copy") },
                     leadingContent = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
@@ -106,7 +138,7 @@ fun MessageActionSheet(
             if (isMine) {
                 if (!isWallpaperProposal) {
                     ListItem(
-                        headlineContent = { Text(if (isImage) "Edit Caption" else "Edit") },
+                        headlineContent = { Text(if (isImage || isVideo) "Edit Caption" else "Edit") },
                         leadingContent = { Icon(Icons.Filled.Edit, contentDescription = null) },
                         modifier = Modifier.clickable { onStartEditing(message); onDismiss() }
                     )
@@ -114,7 +146,11 @@ fun MessageActionSheet(
                 ListItem(
                     headlineContent = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                     leadingContent = {
-                        Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error
+                        )
                     },
                     modifier = Modifier.clickable { onDelete(message); onDismiss() }
                 )

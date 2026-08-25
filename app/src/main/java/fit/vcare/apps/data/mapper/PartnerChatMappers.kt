@@ -4,7 +4,7 @@ import fit.vcare.apps.domain.model.*
 import fit.vcare.apps.viewmodel.ChatListItemUiState
 import org.json.JSONArray
 import org.json.JSONObject
-
+//PartnerChatMappers.kt
 fun JSONObject.unwrapDocument(): JSONObject =
     this.optJSONObject("document") ?: this
 

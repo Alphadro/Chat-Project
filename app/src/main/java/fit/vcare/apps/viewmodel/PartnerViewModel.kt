@@ -14,7 +14,7 @@ import fit.vcare.apps.data.repository.PartnerRepositoryImpl
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-
+//PartnerViewModel.kt
 // TODO(integration): اگر دامنه واقعی خودتان را دارید این دو مقدار را عوض کنید
 private const val DEEP_LINK_HTTPS = "https://YOUR_DOMAIN/partner/invite/"
 private const val DEEP_LINK_SCHEME = "vcareapp://partner/invite/"

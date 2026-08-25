@@ -2,11 +2,7 @@ package fit.vcare.apps.data.repository
 
 import android.content.Context
 
-/**
- * کش عمومی محلی (SharedPreferences) برای نگه‌داشتن آخرین اطلاعات دریافتی از سرور
- * تا موقع باز شدن مجدد صفحه، بدون معطلی (لودینگ سنگین) اطلاعات قبلی نمایش داده بشه
- * و همزمان در پس‌زمینه تلاش برای گرفتن اطلاعات تازه انجام بشه — دقیقاً مثل تلگرام.
- */
+//LocalDataCache
 object LocalDataCache {
 
     private const val PREFS_NAME = "local_data_cache"
