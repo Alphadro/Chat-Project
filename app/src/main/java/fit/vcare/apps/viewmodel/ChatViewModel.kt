@@ -4,12 +4,14 @@ import android.app.Application
 import android.app.DownloadManager
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -41,6 +43,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.UUID
 
 
@@ -153,7 +156,64 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             Toast.makeText(context, "دانلود ناموفق بود", Toast.LENGTH_SHORT).show()
         }
     }
+    fun shareMedia(message: Message) {
+        val url = message.mediaUrl ?: return
+        when (message.type) {
+            MessageType.IMAGE -> shareRemoteFile(url, "image/jpeg", "image_${message.messageId}.jpg")
+            MessageType.VIDEO -> shareRemoteFile(
+                url,
+                message.mimeType?.takeIf { it.isNotBlank() } ?: "video/mp4",
+                "video_${message.messageId}.mp4"
+            )
+            MessageType.FILE -> shareRemoteFile(
+                url,
+                message.mimeType?.takeIf { it.isNotBlank() } ?: "*/*",
+                message.fileName ?: "file_${message.messageId}"
+            )
+            else -> {}
+        }
+    }
 
+    fun shareImageUrl(url: String) {
+        shareRemoteFile(url, "image/jpeg", "image_${System.currentTimeMillis()}.jpg")
+    }
+
+    fun shareVideoUrl(url: String) {
+        shareRemoteFile(url, "video/mp4", "video_${System.currentTimeMillis()}.mp4")
+    }
+
+    private fun shareRemoteFile(url: String, mimeType: String, fileName: String) {
+        viewModelScope.launch {
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { java.net.URL(url).openStream().use { it.readBytes() } }.getOrNull()
+            }
+            if (bytes == null) {
+                Toast.makeText(context, "دریافت فایل برای اشتراک‌گذاری ناموفق بود", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val shareFile = withContext(Dispatchers.IO) {
+                runCatching {
+                    val cacheDir = File(context.cacheDir, "shared_media").apply { mkdirs() }
+                    val file = File(cacheDir, fileName)
+                    file.writeBytes(bytes)
+                    file
+                }.getOrNull()
+            }
+            if (shareFile == null) {
+                Toast.makeText(context, "آماده‌سازی فایل ناموفق بود", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val contentUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", shareFile)
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, contentUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooserIntent = Intent.createChooser(shareIntent, "اشتراک‌گذاری").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)   // ← رفع کرش: چون context اینجا application context هست نه Activity
+            }
+            context.startActivity(chooserIntent) }
+    }
     fun saveImageToGallery(url: String) {
         viewModelScope.launch {
             val bytes = withContext(Dispatchers.IO) {

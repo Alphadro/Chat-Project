@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
@@ -33,7 +34,8 @@ import coil.compose.AsyncImage
 @Composable
 fun FullscreenVideoDialog(
     videoUrl: String,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onShare: () -> Unit    // ← جدید
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -46,14 +48,24 @@ fun FullscreenVideoDialog(
             contentAlignment = Alignment.Center
         ) {
             VideoPreviewPlayer(uri = Uri.parse(videoUrl), modifier = Modifier.fillMaxSize())
-            IconButton(
-                onClick = onDismiss,
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(16.dp)
-                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
             ) {
-                Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+                IconButton(
+                    onClick = onShare,
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Icon(Icons.Filled.Share, contentDescription = "اشتراک‌گذاری", tint = Color.White)
+                }
+                Spacer(Modifier.width(8.dp))
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+                }
             }
         }
     }
@@ -62,7 +74,8 @@ fun FullscreenVideoDialog(
 @Composable
 fun FullscreenImageDialog(
     imageUrl: String,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onShare: () -> Unit    // ← جدید
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -114,14 +127,24 @@ fun FullscreenImageDialog(
                         )
                     }
             )
-            IconButton(
-                onClick = onDismiss,
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(16.dp)
-                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
             ) {
-                Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+                IconButton(
+                    onClick = onShare,
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Icon(Icons.Filled.Share, contentDescription = "اشتراک‌گذاری", tint = Color.White)
+                }
+                Spacer(Modifier.width(8.dp))
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+                }
             }
         }
     }

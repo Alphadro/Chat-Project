@@ -17,6 +17,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import fit.vcare.apps.domain.model.Message
 import fit.vcare.apps.domain.model.MessageType
 //ChatInputBar.kt
@@ -114,6 +117,7 @@ fun ChatBottomBar(
     onMessageTextChange: (String) -> Unit,
     editingMessageId: String?,
     onNotifyTyping: () -> Unit,
+    onEmojiClick: () -> Unit,
     onMicClick: () -> Unit,
     onPickMedia: () -> Unit,
     onPickFile: () -> Unit,
@@ -122,7 +126,9 @@ fun ChatBottomBar(
     isUploadingVideo: Boolean,
     isUploadingFile: Boolean,
     isUploadingAudio: Boolean,
-    isSending: Boolean
+    isSending: Boolean,
+    textFieldFocusRequester: FocusRequester,
+    onTextFieldFocused: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -184,6 +190,10 @@ fun ChatBottomBar(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
+                IconButton(onClick = onEmojiClick) {
+                    Icon(Icons.Filled.EmojiEmotions, contentDescription = "Emoji", tint = MaterialTheme.colorScheme.primary)
+                }
+
                 OutlinedTextField(
                     value = messageText,
                     onValueChange = { newValue ->
@@ -199,7 +209,15 @@ fun ChatBottomBar(
                             ).show()
                         }
                     },
-                    modifier = Modifier.weight(1f).widthIn(max = 200.dp).heightIn(min = 48.dp, max = 120.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .widthIn(max = 200.dp)
+                        .heightIn(min = 48.dp, max = 120.dp)
+                        .focusRequester(textFieldFocusRequester) .onFocusChanged { focusState ->            // ← جدید
+                            if (focusState.isFocused) {
+                                onTextFieldFocused()
+                            }
+                        },
                     placeholder = { Text("Type a message...") }
                 )
 

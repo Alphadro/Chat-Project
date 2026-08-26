@@ -35,6 +35,7 @@ fun MessageActionSheet(
     onDownloadFile: (String, String) -> Unit,
     onCopyText: (String) -> Unit,
     onShareText: (String) -> Unit,
+    onShareMedia: (Message) -> Unit,   // ← جدید
     onStartEditing: (Message) -> Unit,
     onDelete: (Message) -> Unit
 ) {
@@ -99,6 +100,11 @@ fun MessageActionSheet(
                     leadingContent = { Icon(Icons.Filled.Download, contentDescription = null) },
                     modifier = Modifier.clickable { onSaveImage(message.mediaUrl!!); onDismiss() }
                 )
+                ListItem(
+                    headlineContent = { Text("اشتراک‌گذاری") },
+                    leadingContent = { Icon(Icons.Filled.Share, contentDescription = null) },
+                    modifier = Modifier.clickable { onShareMedia(message); onDismiss() }
+                )
             }
 
             if (isVideo && message.status != MessageStatus.PENDING && !message.mediaUrl.isNullOrBlank()) {
@@ -110,6 +116,11 @@ fun MessageActionSheet(
                         onDismiss()
                     }
                 )
+                ListItem(
+                    headlineContent = { Text("اشتراک‌گذاری") },
+                    leadingContent = { Icon(Icons.Filled.Share, contentDescription = null) },
+                    modifier = Modifier.clickable { onShareMedia(message); onDismiss() }
+                )
             }
             if (message.type == MessageType.FILE && message.status != MessageStatus.PENDING && !message.mediaUrl.isNullOrBlank()) {
                 ListItem(
@@ -119,6 +130,11 @@ fun MessageActionSheet(
                         onDownloadFile(message.mediaUrl!!, message.fileName ?: "file")
                         onDismiss()
                     }
+                )
+                ListItem(
+                    headlineContent = { Text("اشتراک‌گذاری") },
+                    leadingContent = { Icon(Icons.Filled.Share, contentDescription = null) },
+                    modifier = Modifier.clickable { onShareMedia(message); onDismiss() }
                 )
             }
 

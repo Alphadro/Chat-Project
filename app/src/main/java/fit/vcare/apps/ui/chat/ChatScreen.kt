@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -29,9 +30,11 @@ import fit.vcare.apps.domain.model.MessageType
 import fit.vcare.apps.viewmodel.ChatViewModel
 import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import fit.vcare.apps.domain.model.RelationshipStatus
 
-//ChatScreen
+//ChatScreen.kt
 @Composable
 fun ChatScreen(
     navController: NavController,
@@ -40,6 +43,11 @@ fun ChatScreen(
     partnerName: String,
     viewModel: ChatViewModel = viewModel()
 ) {
+    var showEmojiPicker by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val textFieldFocusRequester = remember { FocusRequester() }
+
     val uiState by viewModel.uiState.collectAsState()
     var messageText by remember { mutableStateOf("") }
     var actionsForMessage by remember { mutableStateOf<Message?>(null) }
@@ -209,12 +217,10 @@ fun ChatScreen(
     LaunchedEffect(matchedMessageIds) { currentMatchPointer = 0 }
     val highlightedMessageId = matchedMessageIds.getOrNull(currentMatchPointer)
 
-   Column(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(
-                WindowInsets.navigationBars.union(WindowInsets.ime)
-            )
+            .windowInsetsPadding(WindowInsets.navigationBars)
     ) {
        val onPrevMatch: () -> Unit = {
            if (matchedMessageIds.isNotEmpty()) {
@@ -314,6 +320,17 @@ fun ChatScreen(
                 onMessageTextChange = { messageText = it },
                 editingMessageId = uiState.editingMessageId,
                 onNotifyTyping = { viewModel.notifyTyping() },
+                onEmojiClick = {
+                    if (showEmojiPicker) {
+                        showEmojiPicker = false
+                        textFieldFocusRequester.requestFocus()
+                        keyboardController?.show()
+                    } else {
+                        focusManager.clearFocus()
+                        keyboardController?.hide()
+                        showEmojiPicker = true
+                    }
+                },
                 onMicClick = { onMicClick() },
                 onPickMedia = {
                     mediaPickerLauncher.launch(
@@ -332,10 +349,25 @@ fun ChatScreen(
                 isUploadingVideo = uiState.isUploadingVideo,
                 isUploadingFile = uiState.isUploadingFile,
                 isUploadingAudio = uiState.isUploadingAudio,
-                isSending = uiState.isSending
+                isSending = uiState.isSending,
+                        textFieldFocusRequester = textFieldFocusRequester   ,
+                                onTextFieldFocused = {
+                            if (showEmojiPicker) {
+                                showEmojiPicker = false
+                            }
+                        }
             )
         }
-    }
+        EmojiOrKeyboardSpacer(
+            showEmojiPicker = showEmojiPicker,
+            onEmojiSelected = { emoji ->
+                if (messageText.length + emoji.length <= MAX_MESSAGE_INPUT_CHARS) {
+                    messageText += emoji
+                    viewModel.notifyTyping()
+                }
+            }
+        )
+     }
 
     // ── منوی کوتاه اکشن پیام ──────────────────────────────
     val actionMessage = actionsForMessage
@@ -356,6 +388,7 @@ fun ChatScreen(
                 }
                 context.startActivity(Intent.createChooser(sendIntent, "Share"))
             },
+            onShareMedia = { msg -> viewModel.shareMedia(msg) },   // ← جدید
             onStartEditing = { viewModel.startEditingMessage(it) },
             onDelete = { msg ->
                 if (audioPlaybackState.playingMessageId == msg.messageId) {
@@ -414,7 +447,8 @@ fun ChatScreen(
     if (fsVideoUrl != null) {
         FullscreenVideoDialog(
             videoUrl = fsVideoUrl,
-            onDismiss = { fullScreenVideoUrl = null }
+            onDismiss = { fullScreenVideoUrl = null },
+            onShare = { viewModel.shareVideoUrl(fsVideoUrl) }
         )
     }
 
@@ -422,7 +456,8 @@ fun ChatScreen(
     if (fsUrl != null) {
         FullscreenImageDialog(
             imageUrl = fsUrl,
-            onDismiss = { fullScreenImageUrl = null }
+            onDismiss = { fullScreenImageUrl = null },
+            onShare = { viewModel.shareImageUrl(fsUrl) }
         )
     }
 
@@ -527,6 +562,6 @@ fun ChatScreen(
     if (uiState.isDeletingChat) {
         ChatLoadingOverlay("در حال حذف چت...")
     }
-} // ← اینجا کل تابع ChatScreen بسته می‌شه
+}
 
 
