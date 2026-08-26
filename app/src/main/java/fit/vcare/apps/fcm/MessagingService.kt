@@ -9,14 +9,13 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat.getSystemService
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import fit.vcare.apps.ChatScreenTracker
 import fit.vcare.apps.MainActivity
 import fit.vcare.apps.R
 import fit.vcare.apps.data.mapper.unwrapDocument
-import fit.vcare.apps.login_system.getUid
+import fit.vcare.apps.data.repository.getUid
 import fit.vcare.apps.tools.FirestoreApiClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

@@ -1,12 +1,9 @@
 package fit.vcare.apps.viewmodel
 
-import org.json.JSONArray
 import android.app.Application
 import android.app.DownloadManager
 import android.content.ContentValues
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -20,7 +17,6 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewModelScope
 import fit.vcare.apps.ChatScreenTracker
 import fit.vcare.apps.data.audio.AudioPlayerManager
-import fit.vcare.apps.data.audio.AudioRecorder
 import fit.vcare.apps.data.audio.RecordedAudio
 import fit.vcare.apps.data.local.ChatAppearancePrefs
 import fit.vcare.apps.data.remote.MediaRepositoryImpl
@@ -39,20 +35,17 @@ import fit.vcare.apps.domain.model.RelationshipStatus
 import fit.vcare.apps.domain.model.ReplyInfo
 import fit.vcare.apps.fcm.ChatNotificationPrefs
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 import java.util.UUID
+
+
 //ChatViewModel.kt
 private const val MAX_FILE_SIZE_BYTES = 25L * 1024 * 1024
-private const val MAX_RECORDING_DURATION_MS = 120_000L
 private const val MIN_RECORDING_DURATION_MS = 700L
 private const val MAX_MESSAGE_CHARS = 1000
 
@@ -120,17 +113,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _serverMessages = MutableStateFlow<List<Message>>(emptyList())
     private val _pendingMessages = MutableStateFlow<List<Message>>(emptyList())
 
-    private val maxImageDimensionPx = 1280
-    private val jpegQuality = 70
-
     private var lastWrittenReadAt: Long = 0L
-    private var heartbeatJob: Job? = null
 
-    private var typingActive = false
-    private var stopTypingJob: Job? = null
-
-    private val audioRecorder = AudioRecorder(context)
-    private var recordingTimerJob: Job? = null
+    // ── کنترلرهای استخراج‌شده ──
+    private val presenceHeartbeat = PresenceHeartbeatController(context, viewModelScope)
+    private val voiceRecordingController = VoiceRecordingController(context, viewModelScope)
+    private val typingNotifier = TypingNotifier(context, viewModelScope)
 
     private val processLifecycleObserver = object : DefaultLifecycleObserver {
         override fun onStart(owner: LifecycleOwner) {
@@ -140,7 +128,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         override fun onStop(owner: LifecycleOwner) {
             pausePresence()
             // اگر اپ رفت پس‌زمینه درحالی‌که ضبط فعال بود، ایمن لغو کن (فایل ارسال نشود)
-            if (_uiState.value.isRecording) {
+            if (voiceRecordingController.state.value.isRecording) {
                 cancelRecording()
             }
         }
@@ -362,8 +350,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _pendingMessages.value = emptyList()
         ChatScreenTracker.onChatOpened(conversationId)
 
-        viewModelScope.launch { ServerTimeSync.ensureSynced(context) } // ← جدید
-
+        viewModelScope.launch { ServerTimeSync.ensureSynced(context) }
 
         val savedBackground = ChatAppearancePrefs.getEffectiveBackgroundUri(context, conversationId)
         val savedTheme = ChatAppearancePrefs.getEffectiveThemeKey(context, conversationId)
@@ -407,7 +394,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 if (latest > lastWrittenReadAt) {
                     lastWrittenReadAt = latest
                     ChatRepositoryImpl.updateLastRead(context, conversationId, myUid, latest)
-                    ChatRepositoryImpl.resetUnreadCount(context, conversationId, myUid) // ← جدید
+                    ChatRepositoryImpl.resetUnreadCount(context, conversationId, myUid)
                 }
             }
         }
@@ -464,6 +451,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // ── جدید: سینک وضعیت ضبط صدا از VoiceRecordingController به UiState ──
+        viewModelScope.launch {
+            voiceRecordingController.state.collectLatest { rec ->
+                _uiState.value = _uiState.value.copy(
+                    isRecording = rec.isRecording,
+                    recordingDurationMs = rec.recordingDurationMs
+                )
+            }
+        }
+
         resumePresence()
     }
 
@@ -487,7 +484,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         clearTypingState()
 
         // اگر ضبط فعال بود، صفحه را ترک کردیم -> لغو ایمن، چیزی ارسال نشود
-        if (_uiState.value.isRecording) {
+        if (voiceRecordingController.state.value.isRecording) {
             cancelRecording()
         }
         AudioPlayerManager.release()
@@ -495,34 +492,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun resumePresence() {
         if (!isChatScreenActive) return
-        heartbeatJob?.cancel()
-        heartbeatJob = viewModelScope.launch {
-            var attempts = 0
-            while (isActive && attempts < 3) {
-                val result = PartnerRepositoryImpl.updatePresence(context, isOnline = true)
-                if (result.isSuccess) break
-                attempts++
-                delay(1500L)
-            }
-            while (isActive) {
-                delay(8000L)
-                PartnerRepositoryImpl.updatePresence(context, isOnline = true)
-            }
-        }
+        presenceHeartbeat.resume()
     }
 
     private fun pausePresence() {
-        heartbeatJob?.cancel()
-        heartbeatJob = null
-        viewModelScope.launch {
-            var attempts = 0
-            while (attempts < 2) {
-                val result = PartnerRepositoryImpl.updatePresence(context, isOnline = false)
-                if (result.isSuccess) break
-                attempts++
-                delay(800L)
-            }
-        }
+        presenceHeartbeat.pause()
     }
 
 
@@ -598,44 +572,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         return chunks
     }
 
-    /** همون منطق قبلیِ sendMessage، فقط حالا برای یک تکه‌ی از پیش بریده‌شده */
-    private fun sendSingleMessage(convId: String, text: String) {
-        val myUid = getMyUidOrEmpty(context)
-        clearTypingState()
-
-        val tempId = UUID.randomUUID().toString()
-        val now = ServerTimeSync.now()
-        val pendingMsg = Message(
-            messageId = tempId,
-            conversationId = convId,
-            senderId = myUid,
-            text = text,
-            type = MessageType.TEXT,
-            mediaUrl = null,
-            createdAt = now,
-            status = MessageStatus.PENDING
-        )
-        _pendingMessages.value = _pendingMessages.value + pendingMsg
-
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isSending = true, error = null)
-            ChatRepositoryImpl.sendMessage(context, convId, myUid, text, messageId = tempId)
-                .onSuccess {
-                    _uiState.value = _uiState.value.copy(isSending = false)
-                    _pendingMessages.value = _pendingMessages.value.map {
-                        if (it.messageId == tempId) it.copy(status = MessageStatus.SENT) else it
-                    }
-                }
-                .onFailure { e ->
-                    _uiState.value = _uiState.value.copy(
-                        isSending = false,
-                        error = e.message ?: "ارسال ناموفق بود"
-                    )
-                    _pendingMessages.value =
-                        _pendingMessages.value.filterNot { it.messageId == tempId }
-                }
-        }
-    }
 
     fun sendImage(uri: Uri, caption: String = "") {
         val convId = conversationId ?: return
@@ -661,7 +597,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(isUploadingImage = true, error = null)
 
             val bytesResult = withContext(Dispatchers.IO) {
-                runCatching { compressImage(uri) }
+                runCatching { ImageCompressor.compress(context, uri) }
             }
 
             val bytes = bytesResult.getOrNull()
@@ -714,52 +650,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // ───────────────────── Voice Message ─────────────────────
 
     fun startRecording() {
-        if (_uiState.value.isRecording) return
-
-        val started = audioRecorder.start()
+        val started = voiceRecordingController.start(
+            onMaxDurationReached = { stopRecordingAndSend() }
+        )
         if (!started) {
             _uiState.value = _uiState.value.copy(
                 recordingError = "میکروفون در دسترس نیست. لطفاً دوباره تلاش کنید."
             )
-            return
-        }
-
-        _uiState.value = _uiState.value.copy(
-            isRecording = true,
-            recordingDurationMs = 0L,
-            recordingError = null
-        )
-
-        recordingTimerJob?.cancel()
-        recordingTimerJob = viewModelScope.launch {
-            val startedAt = System.currentTimeMillis()
-            while (isActive && _uiState.value.isRecording) {
-                val elapsed = System.currentTimeMillis() - startedAt
-                _uiState.value = _uiState.value.copy(recordingDurationMs = elapsed)
-                if (elapsed >= MAX_RECORDING_DURATION_MS) {
-                    stopRecordingAndSend()
-                    break
-                }
-                delay(200L)
-            }
         }
     }
 
     fun cancelRecording() {
-        recordingTimerJob?.cancel()
-        recordingTimerJob = null
-        audioRecorder.cancel()
-        _uiState.value = _uiState.value.copy(isRecording = false, recordingDurationMs = 0L)
+        voiceRecordingController.cancel()
     }
 
     fun stopRecordingAndSend() {
-        if (!_uiState.value.isRecording) return
-        recordingTimerJob?.cancel()
-        recordingTimerJob = null
-
-        val elapsedMs = _uiState.value.recordingDurationMs
-        val recorded = audioRecorder.stop()
-        _uiState.value = _uiState.value.copy(isRecording = false, recordingDurationMs = 0L)
+        if (!voiceRecordingController.state.value.isRecording) return
+        val (recorded, elapsedMs) = voiceRecordingController.stop()
 
         if (recorded == null) {
             _uiState.value =
@@ -863,13 +770,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /** ضبط رو متوقف می‌کنه و preview (با امکان کپشن) نشون می‌ده — هنوز چیزی آپلود/ارسال نمی‌شه */
     fun stopRecording() {
-        if (!_uiState.value.isRecording) return
-        recordingTimerJob?.cancel()
-        recordingTimerJob = null
-
-        val elapsedMs = _uiState.value.recordingDurationMs   // ← جدید
-        val recorded = audioRecorder.stop()
-        _uiState.value = _uiState.value.copy(isRecording = false, recordingDurationMs = 0L)
+        if (!voiceRecordingController.state.value.isRecording) return
+        val (recorded, elapsedMs) = voiceRecordingController.stop()
 
         if (recorded == null) {
             _uiState.value =
@@ -877,7 +779,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        if (elapsedMs < MIN_RECORDING_DURATION_MS) {           // ← جدید
+        if (elapsedMs < MIN_RECORDING_DURATION_MS) {
             recorded.file.delete()
             _uiState.value =
                 _uiState.value.copy(recordingError = "ضبط خیلی کوتاه بود، کمی بیشتر نگه دارید")
@@ -1083,42 +985,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun notifyTyping() {
         val convId = conversationId ?: return
         val myUid = getMyUidOrEmpty(context)
-
-        if (!typingActive) {
-            typingActive = true
-            viewModelScope.launch {
-                ChatRepositoryImpl.setTypingState(
-                    context,
-                    convId,
-                    myUid,
-                    true
-                )
-            }
-        }
-
-        stopTypingJob?.cancel()
-        stopTypingJob = viewModelScope.launch {
-            delay(3000L)
-            typingActive = false
-            ChatRepositoryImpl.setTypingState(context, convId, myUid, false)
-        }
+        typingNotifier.notifyTyping(convId, myUid)
     }
 
     private fun clearTypingState() {
         val convId = conversationId ?: return
         val myUid = getMyUidOrEmpty(context)
-        stopTypingJob?.cancel()
-        if (typingActive) {
-            typingActive = false
-            viewModelScope.launch {
-                ChatRepositoryImpl.setTypingState(
-                    context,
-                    convId,
-                    myUid,
-                    false
-                )
-            }
-        }
+        typingNotifier.clear(convId, myUid)
     }
 
     fun setChatBackground(uri: String?) {
@@ -1154,7 +1027,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(error = null)
 
             val bytes =
-                withContext(Dispatchers.IO) { runCatching { compressImage(parsedUri) } }.getOrNull()
+                withContext(Dispatchers.IO) { runCatching { ImageCompressor.compress(context, parsedUri) } }.getOrNull()
             if (bytes == null) {
                 _uiState.value = _uiState.value.copy(error = "خواندن تصویر پس‌زمینه ناموفق بود")
                 _pendingMessages.value = _pendingMessages.value.filterNot { it.messageId == tempId }
@@ -1239,124 +1112,67 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(themeKey = themeKey)
     }
 
-    private fun compressImage(uri: Uri): ByteArray {
-        val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        val boundsStream = context.contentResolver.openInputStream(uri)
-            ?: throw IllegalStateException("فایل قابل خواندن نیست")
-        boundsStream.use { input -> BitmapFactory.decodeStream(input, null, boundsOptions) }
-
-        val actualWidth = boundsOptions.outWidth
-        val actualHeight = boundsOptions.outHeight
-        if (actualWidth <= 0 || actualHeight <= 0) {
-            throw IllegalStateException("فرمت تصویر پشتیبانی نمی‌شود")
-        }
-
-        val sampleSize = calculateInSampleSize(actualWidth, actualHeight, maxImageDimensionPx)
-
-        val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-        val decodeStream = context.contentResolver.openInputStream(uri)
-            ?: throw IllegalStateException("فایل قابل خواندن نیست")
-        val sampled =
-            decodeStream.use { input -> BitmapFactory.decodeStream(input, null, decodeOptions) }
-                ?: throw IllegalStateException("خواندن تصویر ناموفق بود")
-
-        val finalBitmap = scaleDown(sampled, maxImageDimensionPx)
-        val output = ByteArrayOutputStream()
-        finalBitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, output)
-
-        if (finalBitmap !== sampled) sampled.recycle()
-        finalBitmap.recycle()
-        return output.toByteArray()
-    }
-
-    private fun calculateInSampleSize(width: Int, height: Int, targetMaxDimension: Int): Int {
-        var sampleSize = 1
-        var currentWidth = width
-        var currentHeight = height
-        // تا وقتی هر دو بعد حداقل ۲ برابر بزرگ‌تر از هدف هستن، sampleSize رو دو برابر کن
-        while (currentWidth / 2 >= targetMaxDimension || currentHeight / 2 >= targetMaxDimension) {
-            currentWidth /= 2
-            currentHeight /= 2
-            sampleSize *= 2
-        }
-        return sampleSize
-    }
-
-    private fun scaleDown(bitmap: Bitmap, maxDimension: Int): Bitmap {
-        val width = bitmap.width
-        val height = bitmap.height
-        if (width <= maxDimension && height <= maxDimension) return bitmap
-
-        val ratio = width.toFloat() / height.toFloat()
-        val (newWidth, newHeight) = if (width >= height) {
-            maxDimension to (maxDimension / ratio).toInt()
-        } else {
-            (maxDimension * ratio).toInt() to maxDimension
-        }
-        return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
-    }
-
     override fun onCleared() {
         super.onCleared()
         ProcessLifecycleOwner.get().lifecycle.removeObserver(processLifecycleObserver)
-        if (_uiState.value.isRecording) {
-            audioRecorder.cancel()
-        }
-        audioRecorder.release()
+        voiceRecordingController.release()
         stopObserving()
     }
 
     fun blockPartner() {
         val convId = conversationId ?: return
         val myUid = getMyUidOrEmpty(context)
+        val previousRelationship = _uiState.value.relationship
+
+        // ← جدید: فوراً روی UI خودم اعمال کن
+        previousRelationship?.let {
+            _uiState.value = _uiState.value.copy(
+                relationship = it.copy(status = RelationshipStatus.BLOCKED, blockedBy = myUid)
+            )
+        }
+
         viewModelScope.launch {
             PartnerRepositoryImpl.updateRelationshipStatus(
                 context,
                 convId,
                 RelationshipStatus.BLOCKED,
                 blockedBy = myUid
-            )
-                .onFailure { e ->
-                    _uiState.value =
-                        _uiState.value.copy(error = e.message ?: "مسدود کردن ناموفق بود")
-                }
+            ).onFailure { e ->
+                // ← جدید: اگه fail شد، برگردون به حالت قبل از تغییر optimistic
+                _uiState.value = _uiState.value.copy(
+                    relationship = previousRelationship,
+                    error = e.message ?: "مسدود کردن ناموفق بود"
+                )
+            }
         }
     }
 
     fun unblockPartner() {
         val convId = conversationId ?: return
+        val previousRelationship = _uiState.value.relationship
+
+        // ← جدید: فوراً روی UI خودم اعمال کن
+        previousRelationship?.let {
+            _uiState.value = _uiState.value.copy(
+                relationship = it.copy(status = RelationshipStatus.ACTIVE, blockedBy = null)
+            )
+        }
+
         viewModelScope.launch {
             PartnerRepositoryImpl.updateRelationshipStatus(
                 context,
                 convId,
                 RelationshipStatus.ACTIVE,
                 blockedBy = null
-            )
-                .onFailure { e ->
-                    _uiState.value =
-                        _uiState.value.copy(error = e.message ?: "لغو مسدودیت ناموفق بود")
-                }
+            ).onFailure { e ->
+                // ← جدید: اگه fail شد، برگردون به حالت قبل از تغییر optimistic
+                _uiState.value = _uiState.value.copy(
+                    relationship = previousRelationship,
+                    error = e.message ?: "لغو مسدودیت ناموفق بود"
+                )
+            }
         }
     }
-
-//    fun unmatchPartner(onDone: () -> Unit) {
-//        val convId = conversationId ?: return
-//        viewModelScope.launch {
-//            PartnerRepositoryImpl.updateRelationshipStatus(context, convId, RelationshipStatus.ENDED)
-//                .onSuccess { onDone() }
-//                .onFailure { e -> _uiState.value = _uiState.value.copy(error = e.message ?: "پایان رابطه ناموفق بود") }
-//        }
-//    }
-//
-//    fun reportPartner(reason: String, onDone: () -> Unit) {
-//        val convId = conversationId ?: return
-//        val partnerUid = _uiState.value.partnerUid
-//        viewModelScope.launch {
-//            PartnerRepositoryImpl.reportPartner(context, convId, partnerUid, reason.trim())
-//                .onSuccess { onDone() }
-//                .onFailure { e -> _uiState.value = _uiState.value.copy(error = e.message ?: "ارسال گزارش ناموفق بود") }
-//        }
-//    }
 
     fun toggleMute() {
         val convId = conversationId ?: return
@@ -1367,17 +1183,29 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun unmatchPartner(onDone: () -> Unit) {
         val convId = conversationId ?: return
+        val previousRelationship = _uiState.value.relationship
+
+        // ← جدید: فوراً روی UI خودم اعمال کن
+        previousRelationship?.let {
+            _uiState.value = _uiState.value.copy(
+                relationship = it.copy(status = RelationshipStatus.ENDED)
+            )
+        }
+
         viewModelScope.launch {
             PartnerRepositoryImpl.updateRelationshipStatus(
                 context,
                 convId,
                 RelationshipStatus.ENDED
-            )
-                .onSuccess { onDone() }
-                .onFailure { e ->
-                    _uiState.value =
-                        _uiState.value.copy(error = e.message ?: "پایان رابطه ناموفق بود")
-                }
+            ).onSuccess {
+                onDone()
+            }.onFailure { e ->
+                // ← جدید: اگه fail شد، برگردون به حالت قبل از تغییر optimistic
+                _uiState.value = _uiState.value.copy(
+                    relationship = previousRelationship,
+                    error = e.message ?: "پایان رابطه ناموفق بود"
+                )
+            }
         }
     }
 

@@ -32,7 +32,6 @@ fun ChatMessageList(
     myBubbleColor: Color,
     isDarkTheme: Boolean,
     coroutineScope: CoroutineScope,
-    onScrollToMessage: (String) -> Unit,
     onReply: (Message) -> Unit,
     onLongPress: (Message) -> Unit,
     onImageClick: (String) -> Unit,
@@ -142,4 +141,3 @@ private fun DateHeaderItem(label: String) {
         }
     }
 }
-private fun sp0() = androidx.compose.ui.unit.TextUnit.Unspecified

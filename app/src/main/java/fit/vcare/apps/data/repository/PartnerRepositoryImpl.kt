@@ -3,14 +3,14 @@ package fit.vcare.apps.data.repository
 import android.content.Context
 import android.util.Log
 import fit.vcare.apps.data.mapper.*
+import fit.vcare.apps.data.remote.ServerTimeSync
 import fit.vcare.apps.domain.model.*
 import fit.vcare.apps.domain.repository.PartnerRepository
-import fit.vcare.apps.login_system.getUid
 import fit.vcare.apps.tools.FirestoreApiClient
+import fit.vcare.apps.tools.FirestorePoller
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -30,7 +30,7 @@ object PartnerRepositoryImpl : PartnerRepository {
     override suspend fun createInvite(context: Context): Result<PartnerInvite> {
         val uid =
             getUid(context) ?: return Result.failure(PartnerException(PartnerError.Unauthorized))
-        val now = FirestoreApiClient.getServerTimeMillis()
+        val now = ServerTimeSync.now()
         val token = UUID.randomUUID().toString()
 
         val invite = PartnerInvite(
@@ -87,7 +87,7 @@ object PartnerRepositoryImpl : PartnerRepository {
         val inviteResult = getInvite(context, token)
         val invite = inviteResult.getOrElse { return Result.failure(it) }
 
-        val now = FirestoreApiClient.getServerTimeMillis()
+        val now = ServerTimeSync.now()
 
         if (invite.status == InviteStatus.CANCELLED) {
             return Result.failure(PartnerException(PartnerError.CancelledInvite))
@@ -223,7 +223,7 @@ object PartnerRepositoryImpl : PartnerRepository {
         val uid =
             getUid(context) ?: return Result.failure(PartnerException(PartnerError.Unauthorized))
         val path = "users/$uid"
-        val now = FirestoreApiClient.getServerTimeMillis()
+        val now = ServerTimeSync.now()
 
         val existingRaw = FirestoreApiClient.read(context, path)
         val doc = if (existingRaw != null && !existingRaw.has("error")) {
@@ -245,33 +245,24 @@ object PartnerRepositoryImpl : PartnerRepository {
         context: Context,
         uid: String,
         intervalMs: Long
-    ): StateFlow<PartnerPresence?> {
-        val state = presenceStates.getOrPut(uid) { MutableStateFlow(null) }
-        presenceJobs[uid]?.cancel()
-
-        val job = scope.launch(Dispatchers.IO) {
-            while (isActive) {
-                val raw = FirestoreApiClient.read(context, "users/$uid")
-                if (raw != null && !raw.has("error")) {
-                    val doc = raw.unwrapDocument()
-                    if (doc.length() > 0) {
-                        state.value = PartnerPresence(
-                            isOnline = doc.optBoolean("isOnline", false),
-                            lastActiveAt = doc.optLong("lastActiveAt", 0L)
-                        )
-                    }
-                }
-                delay(intervalMs)
-            }
-        }
-        presenceJobs[uid] = job
-        return state.asStateFlow()
+    ): StateFlow<PartnerPresence?> = FirestorePoller.observe(
+        scope = scope,
+        jobsMap = presenceJobs,
+        statesMap = presenceStates,
+        key = uid,
+        context = context,
+        path = "users/$uid",
+        intervalMs = intervalMs,
+        initialValue = null
+    ) { doc ->
+        PartnerPresence(
+            isOnline = doc.optBoolean("isOnline", false),
+            lastActiveAt = doc.optLong("lastActiveAt", 0L)
+        )
     }
 
-    override fun stopObservingPresence(uid: String) {
-        presenceJobs[uid]?.cancel()
-        presenceJobs.remove(uid)
-    }
+    override fun stopObservingPresence(uid: String) =
+        FirestorePoller.stop(presenceJobs, uid)
 
     override suspend fun updateRelationshipStatus(
         context: Context,
@@ -352,29 +343,18 @@ object PartnerRepositoryImpl : PartnerRepository {
         context: Context,
         relationshipId: String,
         intervalMs: Long
-    ): StateFlow<Relationship?> {
-        val state = relationshipStates.getOrPut(relationshipId) { MutableStateFlow(null) }
-        relationshipJobs[relationshipId]?.cancel()
+    ): StateFlow<Relationship?> = FirestorePoller.observe(
+        scope = scope,
+        jobsMap = relationshipJobs,
+        statesMap = relationshipStates,
+        key = relationshipId,
+        context = context,
+        path = "relationships/$relationshipId",
+        intervalMs = intervalMs,
+        initialValue = null
+    ) { doc -> doc.toRelationship(relationshipId) }
 
-        val job = scope.launch(Dispatchers.IO) {
-            while (isActive) {
-                val raw = FirestoreApiClient.read(context, "relationships/$relationshipId")
-                if (raw != null && !raw.has("error")) {
-                    val doc = raw.unwrapDocument()
-                    if (doc.length() > 0) {
-                        state.value = raw.toRelationship(relationshipId)
-                    }
-                }
-                delay(intervalMs)
-            }
-        }
-        relationshipJobs[relationshipId] = job
-        return state.asStateFlow()
-    }
-
-    override fun stopObservingRelationshipStatus(relationshipId: String) {
-        relationshipJobs[relationshipId]?.cancel()
-        relationshipJobs.remove(relationshipId)
-    }
+    override fun stopObservingRelationshipStatus(relationshipId: String) =
+        FirestorePoller.stop(relationshipJobs, relationshipId)
 }
 class PartnerException(val error: PartnerError) : Exception(error.message)

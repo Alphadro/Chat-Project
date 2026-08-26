@@ -82,7 +82,8 @@ fun MainScreen(initialDeepLink: ChatDeepLink? = null) {
                     }
                 }
             }
-        ) {innerPadding ->
+        ) {
+            innerPadding ->
             val effectivePadding = PaddingValues(
                 top = innerPadding.calculateTopPadding(),
                 bottom = if (showBottomBar) innerPadding.calculateBottomPadding() else 0.dp,

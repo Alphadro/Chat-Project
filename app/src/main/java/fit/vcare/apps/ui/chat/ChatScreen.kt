@@ -276,7 +276,6 @@ fun ChatScreen(
            coroutineScope = coroutineScope,
            replyThresholdPx = replyThresholdPx,
            partnerName = partnerName,
-           onScrollToMessage = { /* داخل خودش استفاده می‌شه، لازم نیست اینجا کاری کنی */ },
            onReply = { viewModel.startReply(it) },
            onLongPress = { actionsForMessage = it },
            onImageClick = { fullScreenImageUrl = it },

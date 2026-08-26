@@ -33,6 +33,8 @@ fun PartnerInvite.toJson(): JSONObject = JSONObject().apply {
     acceptedBy?.let { put("acceptedBy", it) }
     relationshipId?.let { put("relationshipId", it) }
 }
+fun JSONObject.putOrNull(key: String, value: Any?): JSONObject =
+    put(key, value ?: JSONObject.NULL)
 
 fun JSONObject.toRelationship(fallbackId: String): Relationship {
     val doc = unwrapDocument()
@@ -56,7 +58,7 @@ fun Relationship.toJson(): JSONObject = JSONObject().apply {
     put("status", status.name)
     put("createdAt", createdAt)
     put("connectedAt", connectedAt)
-    put("blockedBy", blockedBy ?: JSONObject.NULL)
+    putOrNull("blockedBy", blockedBy)
 }
 
 fun JSONObject.toRelationshipIndexEntry(): RelationshipIndexEntry {
@@ -121,9 +123,9 @@ fun Conversation.toJson(): JSONObject = JSONObject().apply {
     put("relationshipId", relationshipId)
     put("participantIds", JSONArray(participantIds))
     put("createdAt", createdAt)
-    put("lastMessage", lastMessage ?: JSONObject.NULL)
-    put("lastMessageAt", lastMessageAt ?: JSONObject.NULL)
-    put("lastMessageSenderId", lastMessageSenderId ?: JSONObject.NULL)
+    putOrNull("lastMessage", lastMessage)
+    putOrNull("lastMessageAt", lastMessageAt)
+    putOrNull("lastMessageSenderId", lastMessageSenderId)
     unreadCounts.forEach { (uid, count) -> put("unread_$uid", count) }
 }
 fun JSONObject.toMessage(fallbackId: String, conversationId: String): Message {
@@ -164,20 +166,20 @@ fun Message.toJson(): JSONObject = JSONObject().apply {
     put("senderId", senderId)
     put("text", text)
     put("type", type.name)
-    put("mediaUrl", mediaUrl ?: JSONObject.NULL)
+    putOrNull("mediaUrl", mediaUrl)
     put("createdAt", createdAt)
     put("status", status.name)
     put("isEdited", isEdited)
-    put("durationMs", durationMs ?: JSONObject.NULL)
-    put("mimeType", mimeType ?: JSONObject.NULL)
-    put("fileSize", fileSize ?: JSONObject.NULL)
-    put("fileName", fileName ?: JSONObject.NULL)
-    put("proposalStatus", proposalStatus?.name ?: JSONObject.NULL)
+    putOrNull("durationMs", durationMs)
+    putOrNull("mimeType", mimeType)
+    putOrNull("fileSize", fileSize)
+    putOrNull("fileName", fileName)
+    putOrNull("proposalStatus", proposalStatus?.name)
     put("reactions", JSONObject().apply { reactions.forEach { (uid, emoji) -> put(uid, emoji) } })
-    put("replyToMessageId", replyToMessageId ?: JSONObject.NULL)
-    put("replyToSenderId", replyToSenderId ?: JSONObject.NULL)
-    put("replyToText", replyToText ?: JSONObject.NULL)
-    put("replyToType", replyToType?.name ?: JSONObject.NULL)
+    putOrNull("replyToMessageId", replyToMessageId)
+    putOrNull("replyToSenderId", replyToSenderId)
+    putOrNull("replyToText", replyToText)
+    putOrNull("replyToType", replyToType?.name)
 }
 fun ChatListItemUiState.toJson(): JSONObject = JSONObject().apply {
     put("relationshipId", relationshipId)

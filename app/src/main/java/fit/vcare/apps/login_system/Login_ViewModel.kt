@@ -26,6 +26,7 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 import android.provider.Settings
 import com.google.firebase.messaging.FirebaseMessaging
+import fit.vcare.apps.data.repository.LocalDataCache
 import fit.vcare.apps.fcm.registerFcmToken
 import kotlinx.coroutines.tasks.await
 //Login_ViewModel.kt
@@ -36,7 +37,6 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _loginSuccess = MutableStateFlow(false)
 
-    private val context = application.applicationContext
 
     fun setLoading(value: Boolean) {
         _isLoading.value = value
@@ -121,50 +121,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun getUid(context: Context): String? {
-        val prefs = context.getSharedPreferences("appPrefs", Context.MODE_PRIVATE)
-        return prefs.getString("uid", null)
-    }
 
-
-    suspend fun checkUserStatus(onFinished: () -> Unit): String {
-        val uid = getUid(context)
-        val isIntroSeen = true
-        if (!isIntroSeen) {
-            return "lang_first"
-        }
-
-        if (uid.isNullOrEmpty()) {
-            return "login"
-        }
-
-        return try {
-            val readUrl = "${ApiFirebase.FIRSTFIRE_URL}read-data?path=user/$uid"
-
-            val responseJson = DataSyncManager.fetchAndCacheData(
-                context = context,
-                cacheKey = "user_info_$uid",
-                url = readUrl
-            )
-
-            val document = responseJson?.optJSONObject("document")
-            if (document == null) {
-                return "additionalInfo"
-            }
-
-            val storedName = document.optString("name")
-
-            if (!storedName.isNullOrEmpty()) {
-                onFinished()
-                "page1"
-            } else {
-                "additionalInfo"
-            }
-
-        } catch (e: Exception) {
-            "additionalInfo"
-        }
-    }
     private fun createUserProfileIfNeeded(
         context: Context,
         uid: String,
@@ -237,34 +194,6 @@ interface AuthApi {
     suspend fun logout(@Header("Authorization") token: String): Response<Unit>
 }
 
-object ApiFirebase {
-    const val FIRSTFIRE_URL = "https://api.appeks.com/aifitness-firebase/api/firestore/"
-//    const val SECONDFIRE_URL = "https://api.appeks.com/aifitness-chatgpt/api/firestore/"
-}
-
-suspend fun postJson(
-    url: String,
-    json: JSONObject,
-): String = withContext(Dispatchers.IO) {
-    val client = OkHttpClient()
-    val body = json.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-    val request = Request.Builder().url(url).post(body).build()
-
-    client.newCall(request).execute().use { response ->
-        val responseBody = response.body?.string() ?: ""
-        if (!response.isSuccessful) {
-            throw IOException("Server returned ${response.code}")
-        }
-        responseBody
-    }
-}
-
-
-fun getUid(context: Context): String? {
-    val prefs = context.getSharedPreferences("appPrefs", Context.MODE_PRIVATE)
-    return prefs.getString("uid", null)
-}
-
 
 object DataSyncManager {
 
@@ -273,14 +202,10 @@ object DataSyncManager {
         cacheKey: String,
         url: String
     ): JSONObject? = withContext(Dispatchers.IO) {
-        val prefs = context.getSharedPreferences("local_cache", Context.MODE_PRIVATE)
 
-        val cachedData = prefs.getString(cacheKey, null)
+        val cachedData = LocalDataCache.getString(context, cacheKey)
         if (cachedData != null) {
-            try {
-                return@withContext JSONObject(cachedData)
-            } catch (e: Exception) {
-            }
+            runCatching { JSONObject(cachedData) }.getOrNull()?.let { return@withContext it }
         }
 
         val client = OkHttpClient()
@@ -289,18 +214,16 @@ object DataSyncManager {
         try {
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string()
-
                 if (!response.isSuccessful || body == null) return@withContext null
 
                 val jsonResp = JSONObject(body)
                 val document = jsonResp.optJSONObject("document") ?: return@withContext null
 
-                prefs.edit().putString(cacheKey, document.toString()).apply()
-
-                return@withContext document
+                LocalDataCache.putString(context, cacheKey, document.toString())
+                document
             }
         } catch (e: Exception) {
-            return@withContext null
+            null
         }
     }
 }
